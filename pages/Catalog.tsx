@@ -1,15 +1,36 @@
-import React, { useState } from 'react';
-import { MOCK_PRODUCTS } from '../constants';
-import { ProductCategory } from '../types';
-import { ShoppingCart, Filter, Download, ChevronDown, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ProductCategory, Product } from '../types';
+import { ShoppingCart, Filter, Download, ChevronDown, Check, Loader2, ArrowRight } from 'lucide-react';
+import { supabase, mapProductFromDB } from '../lib/supabase';
+import { Link } from 'react-router-dom';
 
 export const Catalog: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('Все');
   const [priceRange, setPriceRange] = useState<number>(100000);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const categories = ['Все', ...Object.values(ProductCategory)];
 
-  const filteredProducts = MOCK_PRODUCTS.filter(p => 
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      const { data, error } = await supabase.from('products').select('*');
+      if (error) throw error;
+      if (data) {
+        setProducts(data.map(mapProductFromDB));
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredProducts = products.filter(p => 
     (selectedCategory === 'Все' || p.category === selectedCategory) &&
     p.pricePerTon <= priceRange
   );
@@ -90,49 +111,52 @@ export const Catalog: React.FC = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-8">
-              {filteredProducts.map(product => (
-                <div key={product.id} className="group bg-white rounded-3xl p-4 shadow-card hover:shadow-2xl transition-all duration-300 border border-gray-100 flex flex-col hover:-translate-y-1">
-                  <div className="h-56 overflow-hidden rounded-2xl relative bg-gray-100 mb-4">
-                    <img src={product.image} alt={product.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                    <div className="absolute top-3 left-3 bg-white/90 backdrop-blur text-primary-900 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm uppercase tracking-wide">
-                      {product.category}
+            {loading ? (
+              <div className="flex justify-center items-center py-20">
+                <Loader2 size={48} className="text-brand-500 animate-spin" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+                {filteredProducts.map(product => (
+                  <Link to={`/product/${product.slug}`} key={product.id} className="group bg-white rounded-3xl p-4 shadow-card hover:shadow-2xl transition-all duration-300 border border-gray-100 flex flex-col hover:-translate-y-1 relative">
+                    <div className="h-56 overflow-hidden rounded-2xl relative bg-gray-100 mb-4">
+                      <img src={product.image || 'https://via.placeholder.com/300'} alt={product.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                      <div className="absolute top-3 left-3 bg-white/90 backdrop-blur text-primary-900 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm uppercase tracking-wide">
+                        {product.category}
+                      </div>
+                      {/* Hover Actions Overlay */}
+                      <div className="absolute inset-0 bg-primary-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[2px]">
+                         <span className="px-4 py-2 bg-white rounded-xl font-bold text-sm text-primary-900 flex items-center gap-2 hover:scale-105 transition">
+                            Подробнее <ArrowRight size={16}/>
+                         </span>
+                      </div>
                     </div>
-                    {/* Hover Actions Overlay */}
-                    <div className="absolute inset-0 bg-primary-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[2px]">
-                       <button className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-primary-900 hover:text-brand-500 hover:scale-110 transition shadow-lg">
-                          <ShoppingCart size={18} />
-                       </button>
-                       <button className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-primary-900 hover:text-brand-500 hover:scale-110 transition shadow-lg">
-                          <Download size={18} />
-                       </button>
-                    </div>
-                  </div>
-                  
-                  <div className="px-2 pb-2 flex-grow flex flex-col">
-                    <h3 className="font-bold text-lg text-primary-900 mb-3 leading-snug group-hover:text-brand-600 transition-colors">{product.name}</h3>
                     
-                    <div className="flex flex-wrap gap-2 mb-6">
-                       <span className="px-3 py-1 bg-gray-50 rounded-lg text-xs font-semibold text-slate-500 border border-gray-100">{product.steelGrade}</span>
-                       <span className="px-3 py-1 bg-gray-50 rounded-lg text-xs font-semibold text-slate-500 border border-gray-100">{product.dimensions}</span>
-                    </div>
+                    <div className="px-2 pb-2 flex-grow flex flex-col">
+                      <h3 className="font-bold text-lg text-primary-900 mb-3 leading-snug group-hover:text-brand-600 transition-colors">{product.name}</h3>
+                      
+                      <div className="flex flex-wrap gap-2 mb-6">
+                         <span className="px-3 py-1 bg-gray-50 rounded-lg text-xs font-semibold text-slate-500 border border-gray-100">{product.steelGrade}</span>
+                         <span className="px-3 py-1 bg-gray-50 rounded-lg text-xs font-semibold text-slate-500 border border-gray-100">{product.dimensions}</span>
+                      </div>
 
-                    <div className="mt-auto pt-4 border-t border-gray-50 flex items-center justify-between">
-                        <div>
-                          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Тонна</div>
-                          <div className="font-extrabold text-xl text-primary-900">{product.pricePerTon.toLocaleString()} ₽</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Метр</div>
-                          <div className="font-bold text-lg text-slate-600">{product.pricePerMeter} ₽</div>
-                        </div>
+                      <div className="mt-auto pt-4 border-t border-gray-50 flex items-center justify-between">
+                          <div>
+                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Тонна</div>
+                            <div className="font-extrabold text-xl text-primary-900">{product.pricePerTon.toLocaleString()} ₽</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Метр</div>
+                            <div className="font-bold text-lg text-slate-600">{product.pricePerMeter} ₽</div>
+                          </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  </Link>
+                ))}
+              </div>
+            )}
             
-            {filteredProducts.length === 0 && (
+            {!loading && filteredProducts.length === 0 && (
               <div className="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-gray-200">
                 <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Filter size={32} className="text-slate-300" />

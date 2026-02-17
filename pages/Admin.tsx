@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   LayoutDashboard, Package, Users, Settings, LogOut, 
   TrendingUp, TrendingDown, Bell, Search,
   ShoppingCart, AlertTriangle, Menu, Plus, Upload, 
   FileSpreadsheet, Edit, Trash2, Save, X, ChevronRight,
-  FolderTree, MoreHorizontal, CheckCircle, Eye, EyeOff
+  FolderTree, Loader2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { ADMIN_STATS, MOCK_ORDERS, MOCK_PRODUCTS } from '../constants';
-import { Product, ProductCategory, ProductAttribute } from '../types';
+import { ADMIN_STATS } from '../constants';
+import { Product, ProductCategory, ProductAttribute, Order } from '../types';
+import { supabase, mapProductFromDB, mapProductToDB } from '../lib/supabase';
 
 // Types for Internal State
 type ViewState = 'DASHBOARD' | 'PRODUCTS' | 'ADD_PRODUCT' | 'CATEGORIES' | 'IMPORT';
@@ -26,8 +27,75 @@ const data = [
 
 export const Admin: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewState>('DASHBOARD');
-  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const { data: prodData } = await supabase.from('products').select('*');
+      if (prodData) setProducts(prodData.map(mapProductFromDB));
+
+      const { data: orderData } = await supabase.from('orders').select('*');
+      if (orderData) {
+        setOrders(orderData.map((o: any) => ({
+           id: o.id,
+           customerName: o.customer_name,
+           total: o.total,
+           status: o.status,
+           date: new Date(o.created_at).toLocaleDateString()
+        })));
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteProduct = async (id: string) => {
+    if (!window.confirm('Вы уверены?')) return;
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (!error) {
+       setProducts(products.filter(p => p.id !== id));
+    }
+  };
+
+  const saveProduct = async (productData: any) => {
+     // Prepare data for DB
+     const dbData = mapProductToDB(productData);
+     
+     // If new, remove ID to let DB generate UUID or handle it logic
+     if (!editingProduct) {
+       delete dbData.id;
+     }
+
+     const { data, error } = await supabase
+        .from('products')
+        .upsert(dbData)
+        .select()
+        .single();
+     
+     if (!error && data) {
+       const mapped = mapProductFromDB(data);
+       if (editingProduct) {
+         setProducts(products.map(p => p.id === mapped.id ? mapped : p));
+       } else {
+         setProducts([mapped, ...products]);
+       }
+       setActiveView('PRODUCTS');
+       setEditingProduct(null);
+     } else {
+       console.error(error);
+       alert('Ошибка сохранения');
+     }
+  };
 
   // --- SUB-COMPONENTS ---
 
@@ -114,7 +182,7 @@ export const Admin: React.FC = () => {
                   <tr key={product.id} className="hover:bg-gray-50/80 transition group">
                     <td className="px-6 py-3">
                       <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden">
-                        <img src={product.image} alt="" className="w-full h-full object-cover" />
+                        <img src={product.image || 'https://via.placeholder.com/150'} alt="" className="w-full h-full object-cover" />
                       </div>
                     </td>
                     <td className="px-6 py-3">
@@ -150,7 +218,10 @@ export const Admin: React.FC = () => {
                         >
                           <Edit size={16} />
                         </button>
-                        <button className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
+                        <button 
+                          onClick={() => deleteProduct(product.id)}
+                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                        >
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -173,11 +244,22 @@ export const Admin: React.FC = () => {
   const ProductEditor = () => {
     const [tab, setTab] = useState<'info' | 'pricing' | 'specs' | 'seo'>('info');
     
-    // Determine if we are editing or creating
-    const isEdit = !!editingProduct;
-    const initialData = editingProduct || {
+    // State for form
+    const [formState, setFormState] = useState<Partial<Product>>(editingProduct || {
       name: '', article: '', category: ProductCategory.REBAR, pricePerTon: 0, stock: 0, 
-      attributes: [], pricing: { retail: 0, wholesale: 0, dealer: 0 }, seo: { title: '', description: '', keywords: [] }
+      attributes: [], pricing: { retail: 0, wholesale: 0, dealer: 0, pricePerMeter: 0 }, seo: { title: '', description: '', keywords: [] },
+      status: 'in_stock'
+    });
+
+    const handleChange = (field: string, value: any) => {
+        setFormState(prev => ({...prev, [field]: value}));
+    };
+
+    const handlePricingChange = (field: string, value: any) => {
+        setFormState(prev => ({
+            ...prev, 
+            pricing: { ...prev.pricing!, [field]: value }
+        }));
     };
     
     return (
@@ -187,11 +269,11 @@ export const Admin: React.FC = () => {
             <ChevronRight className="rotate-180" size={24} />
           </button>
           <div>
-            <h2 className="text-2xl font-bold text-primary-900">{isEdit ? 'Редактировать товар' : 'Новый товар'}</h2>
-            <p className="text-slate-500 text-sm">{isEdit ? `ID: ${editingProduct?.id}` : 'Заполните информацию о товаре'}</p>
+            <h2 className="text-2xl font-bold text-primary-900">{editingProduct ? 'Редактировать товар' : 'Новый товар'}</h2>
+            <p className="text-slate-500 text-sm">{editingProduct ? `ID: ${editingProduct?.id}` : 'Заполните информацию о товаре'}</p>
           </div>
           <div className="ml-auto flex gap-3">
-             <button className="px-6 py-2 bg-primary-900 text-white rounded-xl font-bold hover:bg-primary-800 transition flex items-center gap-2">
+             <button onClick={() => saveProduct(formState)} className="px-6 py-2 bg-primary-900 text-white rounded-xl font-bold hover:bg-primary-800 transition flex items-center gap-2">
                <Save size={18} /> Сохранить
              </button>
           </div>
@@ -224,21 +306,42 @@ export const Admin: React.FC = () => {
                   <div className="grid grid-cols-2 gap-6">
                      <div className="col-span-2">
                        <label className="block text-sm font-bold text-primary-900 mb-2">Название товара</label>
-                       <input type="text" defaultValue={initialData.name as string} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition" placeholder="Например: Арматура А500С 12мм" />
+                       <input 
+                        type="text" 
+                        value={formState.name} 
+                        onChange={(e) => handleChange('name', e.target.value)}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition" 
+                        placeholder="Например: Арматура А500С 12мм" 
+                        />
                      </div>
                      <div>
                        <label className="block text-sm font-bold text-primary-900 mb-2">Артикул (SKU)</label>
-                       <input type="text" defaultValue={(initialData as any).article} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition" />
+                       <input 
+                        type="text" 
+                        value={formState.article} 
+                        onChange={(e) => handleChange('article', e.target.value)}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition" 
+                        />
                      </div>
                      <div>
                        <label className="block text-sm font-bold text-primary-900 mb-2">Категория</label>
-                       <select defaultValue={(initialData as any).category} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition">
+                       <select 
+                        value={formState.category} 
+                        onChange={(e) => handleChange('category', e.target.value)}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition"
+                        >
                          {Object.values(ProductCategory).map(c => <option key={c} value={c}>{c}</option>)}
                        </select>
                      </div>
                      <div className="col-span-2">
                        <label className="block text-sm font-bold text-primary-900 mb-2">Описание</label>
-                       <textarea rows={4} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition" placeholder="Полное описание товара..."></textarea>
+                       <textarea 
+                        rows={4} 
+                        value={formState.description || ''} 
+                        onChange={(e) => handleChange('description', e.target.value)}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition" 
+                        placeholder="Полное описание товара..."
+                        ></textarea>
                      </div>
                   </div>
                 </div>
@@ -249,15 +352,30 @@ export const Admin: React.FC = () => {
                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                         <label className="block text-xs font-bold text-blue-800 uppercase mb-2">Розница (₽/т)</label>
-                        <input type="number" defaultValue={(initialData as any).pricePerTon} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                        <input 
+                            type="number" 
+                            value={formState.pricePerTon} 
+                            onChange={(e) => handleChange('pricePerTon', Number(e.target.value))}
+                            className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+                        />
                       </div>
                       <div className="bg-green-50 p-4 rounded-xl border border-green-100">
                         <label className="block text-xs font-bold text-green-800 uppercase mb-2">Опт (₽/т)</label>
-                        <input type="number" defaultValue={(initialData as any).pricing?.wholesale} className="w-full px-3 py-2 bg-white border border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" />
+                        <input 
+                            type="number" 
+                            value={formState.pricing?.wholesale} 
+                            onChange={(e) => handlePricingChange('wholesale', Number(e.target.value))}
+                            className="w-full px-3 py-2 bg-white border border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" 
+                        />
                       </div>
                       <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
                         <label className="block text-xs font-bold text-purple-800 uppercase mb-2">Дилер (₽/т)</label>
-                        <input type="number" defaultValue={(initialData as any).pricing?.dealer} className="w-full px-3 py-2 bg-white border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
+                        <input 
+                            type="number" 
+                            value={formState.pricing?.dealer} 
+                            onChange={(e) => handlePricingChange('dealer', Number(e.target.value))}
+                            className="w-full px-3 py-2 bg-white border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" 
+                        />
                       </div>
                    </div>
                    <div className="h-px bg-gray-100"></div>
@@ -273,7 +391,7 @@ export const Admin: React.FC = () => {
               {tab === 'specs' && (
                  <div className="space-y-4">
                     <p className="text-sm text-slate-500 mb-4">Добавьте технические характеристики для фильтрации.</p>
-                    {(initialData as any).attributes?.map((attr: ProductAttribute, idx: number) => (
+                    {formState.attributes?.map((attr: ProductAttribute, idx: number) => (
                       <div key={idx} className="flex gap-4 items-center">
                          <input type="text" defaultValue={attr.name} className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg" placeholder="Название (напр. Диаметр)" />
                          <input type="text" defaultValue={attr.value} className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg" placeholder="Значение (напр. 12мм)" />
@@ -290,12 +408,12 @@ export const Admin: React.FC = () => {
                  <div className="space-y-6">
                     <div>
                        <label className="block text-sm font-bold text-primary-900 mb-2">Meta Title</label>
-                       <input type="text" defaultValue={(initialData as any).seo?.title} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl" />
+                       <input type="text" defaultValue={(formState as any).seo?.title} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl" />
                        <p className="text-xs text-slate-400 mt-1">Рекомендуемая длина: 50-60 символов</p>
                     </div>
                     <div>
                        <label className="block text-sm font-bold text-primary-900 mb-2">Meta Description</label>
-                       <textarea rows={3} defaultValue={(initialData as any).seo?.description} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl"></textarea>
+                       <textarea rows={3} defaultValue={(formState as any).seo?.description} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl"></textarea>
                        <p className="text-xs text-slate-400 mt-1">Рекомендуемая длина: 150-160 символов</p>
                     </div>
                  </div>
@@ -310,15 +428,25 @@ export const Admin: React.FC = () => {
                 <div className="space-y-4">
                    <div>
                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Видимость</label>
-                     <select className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg">
-                       <option>Опубликован</option>
-                       <option>Черновик</option>
-                       <option>Скрыт</option>
+                     <select 
+                        value={formState.status}
+                        onChange={(e) => handleChange('status', e.target.value)}
+                        className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
+                     >
+                       <option value="in_stock">В наличии</option>
+                       <option value="low_stock">Мало</option>
+                       <option value="out_of_stock">Нет в наличии</option>
+                       <option value="hidden">Скрыт</option>
                      </select>
                    </div>
                    <div>
                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Остаток на складе (т)</label>
-                     <input type="number" defaultValue={(initialData as any).stock} className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg" />
+                     <input 
+                        type="number" 
+                        value={formState.stock}
+                        onChange={(e) => handleChange('stock', Number(e.target.value))}
+                        className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg" 
+                     />
                    </div>
                 </div>
              </div>
@@ -327,8 +455,8 @@ export const Admin: React.FC = () => {
              <div className="bg-white rounded-3xl shadow-card border border-gray-100 p-6">
                 <h3 className="font-bold text-primary-900 mb-4">Изображение</h3>
                 <div className="aspect-square bg-gray-100 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-slate-400 hover:border-brand-500 hover:text-brand-500 transition cursor-pointer mb-4 group overflow-hidden relative">
-                   {initialData.image ? (
-                     <img src={initialData.image} alt="" className="w-full h-full object-cover" />
+                   {formState.image ? (
+                     <img src={formState.image} alt="" className="w-full h-full object-cover" />
                    ) : (
                      <>
                        <Upload size={32} className="mb-2" />
@@ -336,7 +464,13 @@ export const Admin: React.FC = () => {
                      </>
                    )}
                 </div>
-                <input type="text" placeholder="Или ссылка на фото..." className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
+                <input 
+                    type="text" 
+                    value={formState.image || ''}
+                    onChange={(e) => handleChange('image', e.target.value)}
+                    placeholder="Или ссылка на фото..." 
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm" 
+                />
              </div>
           </div>
         </div>
@@ -483,20 +617,27 @@ export const Admin: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {MOCK_ORDERS.slice(0, 5).map((order) => (
+                  {orders.slice(0, 5).map((order) => (
                     <tr key={order.id} className="hover:bg-gray-50/50">
-                       <td className="px-6 py-4 font-bold text-primary-900">#{order.id}</td>
+                       <td className="px-6 py-4 font-bold text-primary-900">#{order.id.substring(0,8)}...</td>
                        <td className="px-6 py-4">{order.customerName}</td>
                        <td className="px-6 py-4 font-bold">{order.total.toLocaleString()} ₽</td>
                        <td className="px-6 py-4"><span className="px-2 py-1 bg-gray-100 rounded text-xs text-slate-600">{order.status}</span></td>
                     </tr>
                   ))}
+                  {orders.length === 0 && (
+                     <tr><td colSpan={4} className="p-6 text-center text-slate-400">Нет заказов</td></tr>
+                  )}
                 </tbody>
              </table>
           </div>
        </div>
     </div>
   );
+
+  if (loading && products.length === 0) {
+      return <div className="h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-brand-500" size={48} /></div>;
+  }
 
   // --- MAIN LAYOUT ---
 
@@ -518,7 +659,7 @@ export const Admin: React.FC = () => {
           <SidebarItem view="DASHBOARD" icon={LayoutDashboard} label="Обзор" />
           <SidebarItem view="PRODUCTS" icon={Package} label="Товары" />
           <SidebarItem view="CATEGORIES" icon={FolderTree} label="Категории" />
-          <SidebarItem view="DASHBOARD" icon={ShoppingCart} label="Заказы" badge={3} />
+          <SidebarItem view="DASHBOARD" icon={ShoppingCart} label="Заказы" badge={orders.length || undefined} />
           <SidebarItem view="DASHBOARD" icon={Users} label="Клиенты" />
           
           <div className="my-4 h-px bg-gray-100 mx-4"></div>

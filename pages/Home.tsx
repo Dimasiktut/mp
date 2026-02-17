@@ -4,48 +4,55 @@ import { Link } from 'react-router-dom';
 import { MetalCalculator } from '../components/MetalCalculator';
 import { ProductCategory } from '../types';
 import { CATEGORY_IMAGES } from '../constants';
+import { supabase, mapProductFromDB } from '../lib/supabase';
 
-const FEATURED_ITEMS = [
+// Fallback items if DB is empty
+const DEFAULT_FEATURED = [
   {
     name: "Арматура А500С",
     price: "45,000 ₽",
     trend: "+2.4%",
     image: "https://images.unsplash.com/photo-1626372412809-54129532822a?auto=format&fit=crop&w=600&q=80",
     chart: [40, 65, 55, 80, 70, 90, 85]
-  },
-  {
-    name: "Труба 40x40",
-    price: "52,000 ₽",
-    trend: "+1.8%",
-    image: "https://images.unsplash.com/photo-1535063404245-7c2db922b95d?auto=format&fit=crop&w=600&q=80",
-    chart: [30, 45, 60, 55, 70, 65, 75]
-  },
-  {
-    name: "Балка 20Б1",
-    price: "65,000 ₽",
-    trend: "+3.1%",
-    image: "https://images.unsplash.com/photo-1533062632626-d18e9c403c94?auto=format&fit=crop&w=600&q=80",
-    chart: [50, 55, 52, 60, 68, 75, 82]
   }
 ];
 
 export const Home: React.FC = () => {
   const [currentFeatureIndex, setCurrentFeatureIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [featuredItems, setFeaturedItems] = useState<any[]>(DEFAULT_FEATURED);
 
   useEffect(() => {
+    const fetchFeatured = async () => {
+      // Get 3 random or latest products from Supabase
+      const { data } = await supabase.from('products').select('*').limit(3);
+      if (data && data.length > 0) {
+        setFeaturedItems(data.map(mapProductFromDB).map(p => ({
+            name: p.name,
+            price: `${p.pricePerTon.toLocaleString()} ₽`,
+            trend: "+2.4%", // Mock trend for now
+            image: p.image || "https://images.unsplash.com/photo-1626372412809-54129532822a?auto=format&fit=crop&w=600&q=80",
+            chart: [40, 65, 55, 80, 70, 90, 85] // Mock chart
+        })));
+      }
+    };
+    fetchFeatured();
+  }, []);
+
+  useEffect(() => {
+    if (featuredItems.length <= 1) return;
     const interval = setInterval(() => {
       setIsAnimating(true);
       setTimeout(() => {
-        setCurrentFeatureIndex((prev) => (prev + 1) % FEATURED_ITEMS.length);
+        setCurrentFeatureIndex((prev) => (prev + 1) % featuredItems.length);
         setIsAnimating(false);
       }, 500); // Wait for fade out
     }, 5000); // Change every 5 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [featuredItems]);
 
-  const currentItem = FEATURED_ITEMS[currentFeatureIndex];
+  const currentItem = featuredItems[currentFeatureIndex];
 
   return (
     <div className="pb-20 bg-primary-50">
@@ -142,7 +149,7 @@ export const Home: React.FC = () => {
 
                    {/* Chart Line */}
                    <div className="h-12 flex items-end justify-between gap-2 mb-6">
-                      {currentItem.chart.map((h, i) => (
+                      {currentItem.chart?.map((h: number, i: number) => (
                         <div key={i} className="w-full bg-white/5 rounded-t-sm relative group">
                           <div style={{height: `${h}%`}} className="absolute bottom-0 w-full bg-gradient-to-t from-brand-500 to-orange-400 rounded-t-sm transition-all duration-1000"></div>
                         </div>
