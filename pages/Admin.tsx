@@ -5,15 +5,16 @@ import {
   TrendingUp, TrendingDown, Search,
   ShoppingCart, AlertTriangle, Menu, Plus, Upload, 
   FileSpreadsheet, Edit, Trash2, Save, X, ChevronRight,
-  FolderTree, Loader2, Copy, FileText, Globe, Tag, SlidersHorizontal, CheckSquare, Square, FileCheck
+  FolderTree, Loader2, Copy, FileText, Globe, Tag, SlidersHorizontal, CheckSquare, Square, FileCheck,
+  Megaphone, Image as ImageIcon, Eye, EyeOff, ArrowUp, ArrowDown
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ADMIN_STATS } from '../constants';
-import { Product, ProductCategory, ProductAttribute, Order, ProductPricing, ProductDocument, GlobalAttribute } from '../types';
-import { supabase, mapProductFromDB, mapProductToDB } from '../lib/supabase';
+import { Product, ProductCategory, ProductAttribute, Order, ProductPricing, ProductDocument, GlobalAttribute, PromoSlide, Category } from '../types';
+import { supabase, mapProductFromDB, mapProductToDB, mapCategoryFromDB } from '../lib/supabase';
 
 // Types for Internal State
-type ViewState = 'DASHBOARD' | 'PRODUCTS' | 'ADD_PRODUCT' | 'CATEGORIES' | 'IMPORT' | 'ATTRIBUTES' | 'TAGS' | 'SEO_SETTINGS';
+type ViewState = 'DASHBOARD' | 'PRODUCTS' | 'ADD_PRODUCT' | 'CATEGORIES' | 'IMPORT' | 'ATTRIBUTES' | 'TAGS' | 'SEO_SETTINGS' | 'PROMO';
 
 const chartData = [
   { name: 'Пн', sales: 4000 },
@@ -30,7 +31,8 @@ export const Admin: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [globalAttributes, setGlobalAttributes] = useState<GlobalAttribute[]>([]);
-  const [categories, setCategories] = useState<any[]>([]); // Dynamic categories
+  const [categories, setCategories] = useState<Category[]>([]); // Dynamic categories
+  const [promoSlides, setPromoSlides] = useState<PromoSlide[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   
@@ -60,13 +62,28 @@ export const Admin: React.FC = () => {
         })));
       }
 
-      // 3. Attributes (Try fetch, if table exists)
+      // 3. Attributes
       const { data: attrData } = await supabase.from('attributes').select('*');
       if (attrData) setGlobalAttributes(attrData);
 
-      // 4. Categories (Try fetch, if table exists)
-      const { data: catData } = await supabase.from('categories').select('*');
-      if (catData) setCategories(catData);
+      // 4. Categories
+      const { data: catData } = await supabase.from('categories').select('*').order('name');
+      if (catData) setCategories(catData.map(mapCategoryFromDB));
+
+      // 5. Promo Slides
+      const { data: slideData } = await supabase.from('promo_slides').select('*').order('order', { ascending: true });
+      if (slideData) {
+         setPromoSlides(slideData.map((s: any) => ({
+            id: s.id,
+            title: s.title,
+            description: s.description,
+            image: s.image,
+            link: s.link,
+            buttonText: s.button_text,
+            isActive: s.is_active,
+            order: s.order
+         })));
+      }
 
     } catch (e) {
       console.error("Error fetching data:", e);
@@ -97,31 +114,17 @@ export const Admin: React.FC = () => {
   };
 
   const saveProduct = async (productData: any) => {
-     // Prepare data for DB
      const dbData = mapProductToDB(productData);
-     
-     // If new, remove ID so Supabase generates it
-     if (!productData.id) {
-       delete dbData.id;
-     }
+     if (!productData.id) delete dbData.id;
 
-     const { data, error } = await supabase
-        .from('products')
-        .upsert(dbData)
-        .select()
-        .single();
-     
+     const { data, error } = await supabase.from('products').upsert(dbData).select().single();
      if (!error && data) {
        const mapped = mapProductFromDB(data);
-       if (editingProduct?.id) {
-         setProducts(products.map(p => p.id === mapped.id ? mapped : p));
-       } else {
-         setProducts([mapped, ...products]);
-       }
+       if (editingProduct?.id) setProducts(products.map(p => p.id === mapped.id ? mapped : p));
+       else setProducts([mapped, ...products]);
        setActiveView('PRODUCTS');
        setEditingProduct(null);
      } else {
-       console.error(error);
        alert('Ошибка сохранения: ' + (error?.message || 'Неизвестная ошибка'));
      }
   };
@@ -143,521 +146,580 @@ export const Admin: React.FC = () => {
     </button>
   );
 
-  const ProductList = () => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<string>('all');
-    const [categoryFilter, setCategoryFilter] = useState<string>('all');
-
-    const filtered = products.filter(p => 
-      (p.name?.toLowerCase().includes(searchTerm.toLowerCase()) || p.article?.includes(searchTerm)) &&
-      (statusFilter === 'all' || p.status === statusFilter) &&
-      (categoryFilter === 'all' || p.category === categoryFilter)
-    );
-
-    const toggleSelect = (id: string) => {
-      const newSelected = new Set(selectedProductIds);
-      if (newSelected.has(id)) newSelected.delete(id);
-      else newSelected.add(id);
-      setSelectedProductIds(newSelected);
-    };
-
-    const toggleSelectAll = () => {
-      if (selectedProductIds.size === filtered.length) {
-        setSelectedProductIds(new Set());
-      } else {
-        setSelectedProductIds(new Set(filtered.map(p => p.id)));
-      }
-    };
-
-    // Use categories from DB or fallback to Enum
-    const categoryOptions = categories.length > 0 
-      ? categories.map(c => c.name) 
-      : Object.values(ProductCategory);
-
-    return (
-      <div className="space-y-6 animate-fade-in-up">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-primary-900">Товары</h2>
-            <p className="text-slate-500 text-sm">Управление каталогом ({products.length} позиций)</p>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={() => setActiveView('IMPORT')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-primary-900 rounded-xl font-bold hover:bg-gray-50 transition">
-              <FileSpreadsheet size={18} /> Импорт
-            </button>
-            <button onClick={() => { setEditingProduct(null); setActiveView('ADD_PRODUCT'); }} className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-xl font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/20">
-              <Plus size={18} /> Добавить товар
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-3xl shadow-card border border-gray-100 overflow-hidden">
-          {/* Filters Bar */}
-          <div className="p-4 border-b border-gray-100 flex flex-wrap gap-4 items-center bg-gray-50/50">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Поиск по названию или артикулу..." 
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-            </div>
-            <select 
-              value={categoryFilter} 
-              onChange={e => setCategoryFilter(e.target.value)}
-              className="px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm"
-            >
-              <option value="all">Все категории</option>
-              {categoryOptions.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
-            <select 
-              value={statusFilter} 
-              onChange={e => setStatusFilter(e.target.value)}
-              className="px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm"
-            >
-              <option value="all">Все статусы</option>
-              <option value="in_stock">В наличии</option>
-              <option value="low_stock">Мало</option>
-              <option value="out_of_stock">Нет в наличии</option>
-              <option value="hidden">Скрыт</option>
-            </select>
-          </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-slate-500 font-bold uppercase text-xs tracking-wider">
-                <tr>
-                  <th className="px-6 py-4 w-10">
-                    <button onClick={toggleSelectAll}>
-                      {selectedProductIds.size === filtered.length && filtered.length > 0 ? <CheckSquare size={16} className="text-brand-500"/> : <Square size={16}/>}
-                    </button>
-                  </th>
-                  <th className="px-2 py-4">Фото</th>
-                  <th className="px-6 py-4">Название / Артикул</th>
-                  <th className="px-6 py-4">Категория</th>
-                  <th className="px-6 py-4">Цены (Розница/Опт)</th>
-                  <th className="px-6 py-4">Остаток</th>
-                  <th className="px-6 py-4">Статус</th>
-                  <th className="px-6 py-4 text-right">Действия</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filtered.map(product => (
-                  <tr key={product.id} className="hover:bg-gray-50/80 transition group">
-                    <td className="px-6 py-3">
-                      <button onClick={() => toggleSelect(product.id)}>
-                        {selectedProductIds.has(product.id) ? <CheckSquare size={16} className="text-brand-500"/> : <Square size={16} className="text-slate-300"/>}
-                      </button>
-                    </td>
-                    <td className="px-2 py-3">
-                      <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
-                        <img src={product.image || 'https://via.placeholder.com/150'} alt="" className="w-full h-full object-cover" />
-                      </div>
-                    </td>
-                    <td className="px-6 py-3">
-                      <div className="font-bold text-primary-900 line-clamp-1">{product.name}</div>
-                      <div className="text-xs text-slate-400 font-mono">{product.article}</div>
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium text-slate-600">{product.category}</span>
-                    </td>
-                    <td className="px-6 py-3 font-medium">
-                      {/* SAFE ACCESS TO NUMERIC PROPERTIES */}
-                      <div className="text-primary-900">{(product.pricePerTon || 0).toLocaleString()} ₽</div>
-                      <div className="text-xs text-slate-400">Опт: {(product.pricing?.wholesale || 0).toLocaleString()} ₽</div>
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {product.stock || 0} т
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className={`px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1 w-fit
-                        ${product.status === 'in_stock' ? 'bg-green-100 text-green-700' : 
-                          product.status === 'low_stock' ? 'bg-orange-100 text-orange-700' : 
-                          product.status === 'hidden' ? 'bg-gray-200 text-gray-600' :
-                          'bg-red-100 text-red-700'}`}>
-                        {product.status === 'in_stock' ? 'В наличии' : 
-                         product.status === 'low_stock' ? 'Мало' : 
-                         product.status === 'hidden' ? 'Скрыт' : 'Нет'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => duplicateProduct(product)}
-                          className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition"
-                          title="Дублировать"
-                        >
-                          <Copy size={16} />
-                        </button>
-                        <button 
-                          onClick={() => { setEditingProduct(product); setActiveView('ADD_PRODUCT'); }}
-                          className="p-2 text-slate-400 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition"
-                          title="Редактировать"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button 
-                          onClick={() => deleteProduct(product.id)}
-                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                          title="Удалить"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {filtered.length === 0 && (
-             <div className="p-12 text-center text-slate-400">
-               Товары не найдены
-             </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const ProductEditor = () => {
-    const [tab, setTab] = useState<'info' | 'pricing' | 'specs' | 'files' | 'seo'>('info');
-    
-    // Initial State
-    const defaultProduct: Partial<Product> = {
-      name: '', article: '', category: ProductCategory.REBAR, 
-      pricePerTon: 0, stock: 0, 
-      attributes: [], 
-      tags: [],
-      pricing: { retail: 0, wholesale: 0, dealer: 0, pricePerMeter: 0, vatIncluded: true }, 
-      seo: { title: '', description: '', keywords: [], h1: '', seoText: '' },
-      status: 'in_stock',
-      documents: []
-    };
-
-    const [formState, setFormState] = useState<Partial<Product>>(editingProduct || defaultProduct);
-    const [tagInput, setTagInput] = useState('');
-
-    const handleChange = (field: string, value: any) => {
-        setFormState(prev => ({...prev, [field]: value}));
-    };
-
-    const handlePricingChange = (field: keyof ProductPricing, value: any) => {
-        setFormState(prev => ({
-            ...prev, 
-            pricing: { ...(prev.pricing || defaultProduct.pricing!), [field]: value },
-            // Sync legacy fields
-            pricePerTon: field === 'retail' ? value : (prev.pricePerTon || 0),
-            pricePerMeter: field === 'pricePerMeter' ? value : (prev.pricePerMeter || 0)
-        }));
-    };
-
-    const addTag = () => {
-       if(!tagInput.trim()) return;
-       const newTags = [...(formState.tags || []), tagInput.trim()];
-       handleChange('tags', newTags);
-       setTagInput('');
-    };
-
-    const removeTag = (tag: string) => {
-       handleChange('tags', (formState.tags || []).filter(t => t !== tag));
-    };
-
-    const categoryOptions = categories.length > 0 
-      ? categories.map(c => c.name) 
-      : Object.values(ProductCategory);
-
-    return (
-      <div className="max-w-5xl mx-auto space-y-6 animate-fade-in-up">
-        <div className="flex items-center gap-4">
-          <button onClick={() => setActiveView('PRODUCTS')} className="p-2 hover:bg-gray-100 rounded-full transition">
-            <ChevronRight className="rotate-180" size={24} />
-          </button>
-          <div>
-            <h2 className="text-2xl font-bold text-primary-900">{editingProduct ? 'Редактировать товар' : 'Новый товар'}</h2>
-            <p className="text-slate-500 text-sm">{editingProduct ? `ID: ${editingProduct?.id}` : 'Заполните информацию о товаре'}</p>
-          </div>
-          <div className="ml-auto flex gap-3">
-             <button onClick={() => saveProduct(formState)} className="px-6 py-2 bg-primary-900 text-white rounded-xl font-bold hover:bg-primary-800 transition flex items-center gap-2">
-               <Save size={18} /> Сохранить
-             </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-12 gap-8">
-          <div className="col-span-12 md:col-span-8 space-y-6">
-            
-            {/* Tabs */}
-            <div className="bg-white rounded-2xl p-1 shadow-sm border border-gray-100 flex overflow-x-auto">
-              {[
-                {id: 'info', label: 'Основное'}, 
-                {id: 'pricing', label: 'Цены и Налоги'}, 
-                {id: 'specs', label: 'Характеристики'},
-                {id: 'files', label: 'Документы'},
-                {id: 'seo', label: 'SEO'}
-              ].map(t => (
-                <button 
-                  key={t.id}
-                  onClick={() => setTab(t.id as any)}
-                  className={`flex-1 py-2 px-4 rounded-xl text-sm font-bold transition whitespace-nowrap ${tab === t.id ? 'bg-primary-900 text-white shadow-md' : 'text-slate-500 hover:text-primary-900'}`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-card border border-gray-100 p-8">
-              {tab === 'info' && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-6">
-                     <div className="col-span-2">
-                       <label className="block text-sm font-bold text-primary-900 mb-2">Название товара</label>
-                       <input 
-                        type="text" 
-                        value={formState.name} 
-                        onChange={(e) => handleChange('name', e.target.value)}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition" 
-                        placeholder="Например: Арматура А500С 12мм" 
-                        />
-                     </div>
-                     <div>
-                       <label className="block text-sm font-bold text-primary-900 mb-2">Артикул (SKU)</label>
-                       <input 
-                        type="text" 
-                        value={formState.article} 
-                        onChange={(e) => handleChange('article', e.target.value)}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition" 
-                        />
-                     </div>
-                     <div>
-                       <label className="block text-sm font-bold text-primary-900 mb-2">Категория</label>
-                       <select 
-                        value={formState.category} 
-                        onChange={(e) => handleChange('category', e.target.value)}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition"
-                        >
-                         {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
-                       </select>
-                     </div>
-                     
-                     <div className="col-span-2">
-                        <label className="block text-sm font-bold text-primary-900 mb-2">Теги</label>
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          {formState.tags?.map((tag, i) => (
-                             <span key={i} className="bg-brand-50 text-brand-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
-                               {tag} <button onClick={() => removeTag(tag)}><X size={12}/></button>
-                             </span>
-                          ))}
-                        </div>
-                        <div className="flex gap-2">
-                           <input 
-                              type="text" 
-                              value={tagInput}
-                              onChange={(e) => setTagInput(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && addTag()}
-                              className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl"
-                              placeholder="Введите тег и нажмите Enter"
-                           />
-                           <button onClick={addTag} className="px-4 bg-gray-100 rounded-xl hover:bg-gray-200"><Plus size={18}/></button>
-                        </div>
-                     </div>
-                  </div>
-                </div>
-              )}
-              {/* Other tabs mostly static UI, kept safe */}
-              {tab === 'pricing' && (
-                 <div className="space-y-6">
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200">
-                        <h4 className="font-bold text-primary-900 mb-4 border-b pb-2">Основные цены</h4>
-                        <div className="space-y-4">
-                           <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase">Розничная цена (₽/т)</label>
-                              <input 
-                                type="number" 
-                                value={formState.pricing?.retail} 
-                                onChange={(e) => handlePricingChange('retail', Number(e.target.value))}
-                                className="w-full mt-1 px-4 py-2 bg-white border border-gray-300 rounded-lg" 
-                              />
-                           </div>
-                           <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase">Цена за метр (₽)</label>
-                              <input 
-                                type="number" 
-                                value={formState.pricing?.pricePerMeter} 
-                                onChange={(e) => handlePricingChange('pricePerMeter', Number(e.target.value))}
-                                className="w-full mt-1 px-4 py-2 bg-white border border-gray-300 rounded-lg" 
-                              />
-                           </div>
-                        </div>
-                      </div>
-                   </div>
-                 </div>
-              )}
-            </div>
-          </div>
-          <div className="col-span-12 md:col-span-4 space-y-6">
-             <div className="bg-white rounded-3xl shadow-card border border-gray-100 p-6">
-                <h3 className="font-bold text-primary-900 mb-4">Статус</h3>
-                <select 
-                  value={formState.status}
-                  onChange={(e) => handleChange('status', e.target.value)}
-                  className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg font-medium"
-                >
-                  <option value="in_stock">В наличии</option>
-                  <option value="low_stock">Мало</option>
-                  <option value="out_of_stock">Нет в наличии</option>
-                  <option value="hidden">Скрыт</option>
-                </select>
-                <div className="mt-4">
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Остаток (т)</label>
-                  <input 
-                    type="number" 
-                    value={formState.stock}
-                    onChange={(e) => handleChange('stock', Number(e.target.value))}
-                    className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg" 
-                  />
-                </div>
-             </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const AttributeManager = () => {
-    const [newAttr, setNewAttr] = useState({ name: '', slug: '', type: 'text' });
-    const [localAttrs, setLocalAttrs] = useState<GlobalAttribute[]>(globalAttributes);
-
-    const handleCreate = async () => {
-      const attr = { ...newAttr, id: undefined }; // DB generates ID
-      const { data, error } = await supabase.from('attributes').insert(attr).select().single();
-      if (data) {
-        const newEntry = { ...data, id: String(data.id) } as GlobalAttribute;
-        setLocalAttrs([...localAttrs, newEntry]);
-        setNewAttr({ name: '', slug: '', type: 'text' });
-      } else {
-        alert("Ошибка создания: " + (error?.message || "Неизвестная ошибка (проверьте таблицу 'attributes')"));
-      }
-    };
-
-    return (
-    <div className="max-w-4xl mx-auto animate-fade-in-up">
-       <div className="flex justify-between items-center mb-6">
-         <h2 className="text-2xl font-bold text-primary-900">Атрибуты</h2>
-       </div>
-
-       {/* Creation Form */}
-       <div className="bg-white p-6 rounded-3xl shadow-card border border-gray-100 mb-8 flex gap-4 items-end">
-          <div className="flex-1">
-            <label className="text-xs font-bold text-slate-400">Название</label>
-            <input 
-              value={newAttr.name} 
-              onChange={e => setNewAttr({...newAttr, name: e.target.value})}
-              className="w-full px-4 py-2 border rounded-lg mt-1" 
-              placeholder="Например: Диаметр"
-            />
-          </div>
-          <div className="flex-1">
-            <label className="text-xs font-bold text-slate-400">Slug (код)</label>
-            <input 
-              value={newAttr.slug} 
-              onChange={e => setNewAttr({...newAttr, slug: e.target.value})}
-              className="w-full px-4 py-2 border rounded-lg mt-1" 
-              placeholder="diameter"
-            />
-          </div>
-          <div className="w-32">
-             <label className="text-xs font-bold text-slate-400">Тип</label>
-             <select 
-               value={newAttr.type}
-               onChange={e => setNewAttr({...newAttr, type: e.target.value})}
-               className="w-full px-4 py-2 border rounded-lg mt-1"
-             >
-               <option value="text">Текст</option>
-               <option value="number">Число</option>
-               <option value="select">Список</option>
-             </select>
-          </div>
-          <button onClick={handleCreate} className="px-6 py-2.5 bg-brand-500 text-white font-bold rounded-lg hover:bg-brand-600">
-            Создать
-          </button>
-       </div>
-
-       <div className="bg-white rounded-3xl shadow-card border border-gray-100 overflow-hidden">
-          <table className="w-full text-left text-sm">
-             <thead className="bg-gray-50 text-slate-500 font-bold uppercase text-xs">
-                <tr>
-                   <th className="px-6 py-4">Название</th>
-                   <th className="px-6 py-4">Тип</th>
-                   <th className="px-6 py-4">Slug</th>
-                   <th className="px-6 py-4 text-right">ID</th>
-                </tr>
-             </thead>
-             <tbody className="divide-y divide-gray-100">
-                {localAttrs.map(attr => (
-                   <tr key={attr.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 font-bold text-primary-900">{attr.name}</td>
-                      <td className="px-6 py-4"><span className="px-2 py-1 bg-gray-100 rounded text-xs uppercase font-bold text-slate-500">{attr.type}</span></td>
-                      <td className="px-6 py-4 text-slate-400 font-mono text-xs">{attr.slug}</td>
-                      <td className="px-6 py-4 text-right text-xs text-slate-300">{attr.id}</td>
-                   </tr>
-                ))}
-                {localAttrs.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-slate-400">Нет атрибутов</td></tr>}
-             </tbody>
-          </table>
-       </div>
-    </div>
-    );
-  };
-
   const CategoryManager = () => {
-    const [newCat, setNewCat] = useState('');
+    const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
+
+    const handleSave = async () => {
+       if (!editingCategory?.name) return alert('Введите название');
+       
+       const dbData = {
+          name: editingCategory.name,
+          slug: editingCategory.slug || editingCategory.name.toLowerCase().replace(/\s/g, '-'),
+          image: editingCategory.image,
+          description: editingCategory.description,
+          seo: editingCategory.seo,
+          // Add updated_at if you want
+       };
+
+       let result;
+       if (editingCategory.id) {
+          result = await supabase.from('categories').update(dbData).eq('id', editingCategory.id).select();
+       } else {
+          result = await supabase.from('categories').insert(dbData).select();
+       }
+
+       if (result.data) {
+          const newCat = mapCategoryFromDB(result.data[0]);
+          if (editingCategory.id) {
+             setCategories(categories.map(c => c.id === newCat.id ? newCat : c));
+          } else {
+             setCategories([...categories, newCat]);
+          }
+          setEditingCategory(null);
+       } else {
+          alert('Ошибка: ' + result.error?.message);
+       }
+    };
     
-    // Simple add implementation
-    const handleAdd = async () => {
-      if(!newCat) return;
-      const { data, error } = await supabase.from('categories').insert({ name: newCat, slug: newCat.toLowerCase().replace(/\s/g, '-') }).select();
-      if(data) {
-        setCategories([...categories, data[0]]);
-        setNewCat('');
-      } else {
-         alert("Ошибка (проверьте таблицу 'categories'): " + error?.message);
-      }
+    const handleDelete = async (id: string) => {
+       if(!confirm('Удалить категорию?')) return;
+       const { error } = await supabase.from('categories').delete().eq('id', id);
+       if(!error) setCategories(categories.filter(c => c.id !== id));
     };
 
     return (
       <div className="animate-fade-in-up space-y-6">
-        <h2 className="text-2xl font-bold text-primary-900">Категории</h2>
-        
-        <div className="bg-white p-6 rounded-3xl shadow-card border border-gray-100 flex gap-4">
-           <input 
-             value={newCat}
-             onChange={e => setNewCat(e.target.value)}
-             className="flex-1 px-4 py-2 border rounded-xl"
-             placeholder="Название новой категории" 
-           />
-           <button onClick={handleAdd} className="px-6 py-2 bg-brand-500 text-white font-bold rounded-xl">Добавить</button>
+        <div className="flex justify-between items-center">
+            <div>
+               <h2 className="text-2xl font-bold text-primary-900">Категории</h2>
+               <p className="text-slate-500 text-sm">Управление структурой каталога и SEO</p>
+            </div>
+            <button 
+               onClick={() => setEditingCategory({ 
+                  name: '', slug: '', 
+                  seo: { title: '', description: '', h1: '', seoText: '' } 
+               })}
+               className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-xl font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/20"
+            >
+               <Plus size={18} /> Новая категория
+            </button>
         </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+           {/* List */}
+           <div className="bg-white rounded-3xl shadow-card border border-gray-100 p-6">
+              <h3 className="font-bold text-slate-400 text-xs uppercase tracking-wider mb-4">Список категорий</h3>
+              <ul className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
+                 {categories.map(cat => (
+                    <li key={cat.id} 
+                        onClick={() => setEditingCategory(cat)}
+                        className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${editingCategory?.id === cat.id ? 'bg-primary-900 text-white border-primary-900' : 'hover:bg-gray-50 border-transparent hover:border-gray-200'}`}
+                    >
+                        <div className={`p-1.5 rounded-lg ${editingCategory?.id === cat.id ? 'bg-white/10' : 'bg-gray-100 text-slate-400'}`}>
+                           <FolderTree size={16}/>
+                        </div>
+                        <span className="font-medium flex-1">{cat.name}</span>
+                        <div className="text-xs opacity-50 font-mono">{cat.slug}</div>
+                        <button 
+                           onClick={(e) => { e.stopPropagation(); handleDelete(cat.id); }}
+                           className={`p-1.5 rounded hover:bg-red-500 hover:text-white transition ${editingCategory?.id === cat.id ? 'text-white/50' : 'text-slate-300'}`}
+                        >
+                           <Trash2 size={14} />
+                        </button>
+                    </li>
+                 ))}
+                 {categories.length === 0 && <div className="text-slate-400 text-center py-8">Нет категорий</div>}
+              </ul>
+           </div>
 
-        <div className="bg-white rounded-3xl shadow-card border border-gray-100 p-6">
-           <h3 className="font-bold text-slate-400 text-xs uppercase tracking-wider mb-4">Список</h3>
-           <ul className="space-y-2">
-             {categories.length > 0 ? categories.map((cat, i) => (
-               <li key={i} className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl border border-transparent hover:border-gray-200 transition">
-                  <div className="p-1.5 bg-gray-100 rounded-lg text-slate-400"><FolderTree size={16}/></div>
-                  <span className="font-medium text-primary-900">{cat.name}</span>
-               </li>
-             )) : (
-               <div className="text-slate-400">Категории не найдены в БД.</div>
-             )}
-           </ul>
+           {/* Editor */}
+           {editingCategory ? (
+             <div className="bg-white rounded-3xl shadow-card border border-gray-100 p-8">
+                <div className="flex justify-between items-center mb-6">
+                   <h3 className="text-xl font-bold text-primary-900">
+                      {editingCategory.id ? `Редактирование: ${editingCategory.name}` : 'Создание категории'}
+                   </h3>
+                   <button onClick={() => setEditingCategory(null)} className="p-2 text-slate-400 hover:text-red-500 bg-gray-50 rounded-lg"><X size={18}/></button>
+                </div>
+                
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                   <div>
+                      <label className="block text-xs font-bold text-slate-400 mb-1">Название</label>
+                      <input 
+                         className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
+                         value={editingCategory.name}
+                         onChange={e => setEditingCategory({...editingCategory, name: e.target.value})}
+                      />
+                   </div>
+                   <div>
+                      <label className="block text-xs font-bold text-slate-400 mb-1">ЧПУ (Slug)</label>
+                      <input 
+                         className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
+                         value={editingCategory.slug}
+                         onChange={e => setEditingCategory({...editingCategory, slug: e.target.value})}
+                      />
+                   </div>
+                   <div>
+                      <label className="block text-xs font-bold text-slate-400 mb-1">URL Изображения</label>
+                      <input 
+                         className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
+                         value={editingCategory.image || ''}
+                         onChange={e => setEditingCategory({...editingCategory, image: e.target.value})}
+                      />
+                   </div>
+                   <div>
+                      <label className="block text-xs font-bold text-slate-400 mb-1">Описание (HTML)</label>
+                      <textarea 
+                         rows={4}
+                         className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm"
+                         value={editingCategory.description || ''}
+                         onChange={e => setEditingCategory({...editingCategory, description: e.target.value})}
+                      />
+                   </div>
+                   
+                   <div className="pt-4 border-t border-gray-100">
+                      <div className="font-bold text-primary-900 mb-3 flex items-center gap-2"><Globe size={16}/> SEO Настройки</div>
+                      <div className="space-y-3">
+                         <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">Meta Title</label>
+                            <input 
+                               className="w-full px-4 py-2 bg-blue-50/50 border border-blue-100 rounded-lg"
+                               value={editingCategory.seo?.title || ''}
+                               onChange={e => setEditingCategory({
+                                  ...editingCategory, 
+                                  seo: { ...editingCategory.seo, title: e.target.value } as any
+                               })}
+                            />
+                         </div>
+                         <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">H1 Заголовок</label>
+                            <input 
+                               className="w-full px-4 py-2 bg-blue-50/50 border border-blue-100 rounded-lg"
+                               value={editingCategory.seo?.h1 || ''}
+                               onChange={e => setEditingCategory({
+                                  ...editingCategory, 
+                                  seo: { ...editingCategory.seo, h1: e.target.value } as any
+                               })}
+                            />
+                         </div>
+                         <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">Meta Description</label>
+                            <textarea 
+                               rows={3}
+                               className="w-full px-4 py-2 bg-blue-50/50 border border-blue-100 rounded-lg"
+                               value={editingCategory.seo?.description || ''}
+                               onChange={e => setEditingCategory({
+                                  ...editingCategory, 
+                                  seo: { ...editingCategory.seo, description: e.target.value } as any
+                               })}
+                            />
+                         </div>
+                         <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-1">SEO Текст (внизу страницы)</label>
+                            <textarea 
+                               rows={5}
+                               className="w-full px-4 py-2 bg-blue-50/50 border border-blue-100 rounded-lg"
+                               value={editingCategory.seo?.seoText || ''}
+                               onChange={e => setEditingCategory({
+                                  ...editingCategory, 
+                                  seo: { ...editingCategory.seo, seoText: e.target.value } as any
+                               })}
+                            />
+                         </div>
+                      </div>
+                   </div>
+
+                   <button 
+                      onClick={handleSave}
+                      className="w-full py-3 bg-brand-500 text-white rounded-xl font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/20 mt-4"
+                   >
+                      Сохранить категорию
+                   </button>
+                </div>
+             </div>
+           ) : (
+             <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-3xl p-12 flex flex-col items-center justify-center text-center text-slate-400">
+                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4">
+                   <Settings size={32} className="text-slate-300" />
+                </div>
+                <p>Выберите категорию слева<br/>или создайте новую для редактирования</p>
+             </div>
+           )}
         </div>
       </div>
     );
   }
+
+  const AttributeManager = () => {
+    const [editingAttr, setEditingAttr] = useState<Partial<GlobalAttribute> | null>(null);
+
+    const saveAttribute = async () => {
+        if (!editingAttr?.name || !editingAttr?.slug) return alert('Заполните обязательные поля');
+        const { data, error } = await supabase.from('attributes').upsert(editingAttr).select().single();
+        if (error) return alert(error.message);
+        if (data) {
+            setGlobalAttributes(prev => {
+                const idx = prev.findIndex(a => a.id === data.id);
+                if (idx >= 0) {
+                    const newArr = [...prev];
+                    newArr[idx] = data;
+                    return newArr;
+                }
+                return [...prev, data];
+            });
+            setEditingAttr(null);
+        }
+    };
+
+    const deleteAttribute = async (id: string) => {
+        if (!confirm('Удалить атрибут?')) return;
+        const { error } = await supabase.from('attributes').delete().eq('id', id);
+        if (!error) setGlobalAttributes(prev => prev.filter(a => a.id !== id));
+    };
+
+    return (
+        <div className="space-y-6 animate-fade-in-up">
+            <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-primary-900">Атрибуты товаров</h2>
+                <button onClick={() => setEditingAttr({ name: '', slug: '', type: 'text' })} className="flex gap-2 items-center bg-brand-500 text-white px-4 py-2 rounded-xl"><Plus size={18} /> Добавить</button>
+            </div>
+            
+            {editingAttr && (
+                <div className="bg-white p-6 rounded-3xl shadow-card border border-gray-100 mb-6">
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                        <input placeholder="Название (напр. Диаметр)" value={editingAttr.name} onChange={e => setEditingAttr({...editingAttr, name: e.target.value})} className="border p-2 rounded-lg" />
+                        <input placeholder="Slug (напр. diameter)" value={editingAttr.slug} onChange={e => setEditingAttr({...editingAttr, slug: e.target.value})} className="border p-2 rounded-lg" />
+                        <select value={editingAttr.type} onChange={e => setEditingAttr({...editingAttr, type: e.target.value as any})} className="border p-2 rounded-lg">
+                            <option value="text">Текст</option>
+                            <option value="number">Число</option>
+                            <option value="select">Выбор</option>
+                        </select>
+                    </div>
+                    <div className="flex gap-2">
+                        <button onClick={saveAttribute} className="bg-brand-500 text-white px-4 py-2 rounded-lg">Сохранить</button>
+                        <button onClick={() => setEditingAttr(null)} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">Отмена</button>
+                    </div>
+                </div>
+            )}
+            <div className="bg-white rounded-3xl shadow-card overflow-hidden">
+                <table className="w-full text-left">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="p-4">Название</th>
+                            <th className="p-4">Slug</th>
+                            <th className="p-4">Тип</th>
+                            <th className="p-4">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {globalAttributes.map(attr => (
+                            <tr key={attr.id} className="border-t">
+                                <td className="p-4 font-bold">{attr.name}</td>
+                                <td className="p-4 text-slate-500">{attr.slug}</td>
+                                <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs">{attr.type}</span></td>
+                                <td className="p-4 flex gap-2">
+                                    <button onClick={() => setEditingAttr(attr)} className="text-blue-500"><Edit size={16} /></button>
+                                    <button onClick={() => deleteAttribute(attr.id)} className="text-red-500"><Trash2 size={16} /></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+  };
+
+  const PromoManager = () => {
+    const [editingSlide, setEditingSlide] = useState<Partial<PromoSlide> | null>(null);
+
+    const saveSlide = async () => {
+         if (!editingSlide) return;
+         const { data, error } = await supabase.from('promo_slides').upsert(editingSlide).select().single();
+         if (!error && data) {
+             setPromoSlides(prev => {
+                 const idx = prev.findIndex(s => s.id === data.id);
+                 if (idx >= 0) {
+                     const n = [...prev]; n[idx] = data; return n;
+                 }
+                 return [...prev, data];
+             });
+             setEditingSlide(null);
+         } else {
+             alert(error?.message);
+         }
+    };
+
+    const deleteSlide = async (id: string) => {
+        if (!confirm('Удалить слайд?')) return;
+        const { error } = await supabase.from('promo_slides').delete().eq('id', id);
+        if (!error) setPromoSlides(prev => prev.filter(s => s.id !== id));
+    };
+
+    return (
+        <div className="space-y-6 animate-fade-in-up">
+            <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-primary-900">Промо слайдер</h2>
+                <button onClick={() => setEditingSlide({ order: promoSlides.length + 1, isActive: true, title: '', description: '', image: '', buttonText: 'Подробнее', link: '/catalog' })} className="bg-brand-500 text-white px-4 py-2 rounded-xl flex items-center gap-2"><Plus size={18}/> Добавить слайд</button>
+            </div>
+            
+            {editingSlide && (
+                <div className="bg-white p-6 rounded-3xl shadow-card border border-gray-100 mb-6">
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                        <input placeholder="Заголовок" value={editingSlide.title} onChange={e => setEditingSlide({...editingSlide, title: e.target.value})} className="border p-2 rounded-lg col-span-2" />
+                        <textarea placeholder="Описание" value={editingSlide.description} onChange={e => setEditingSlide({...editingSlide, description: e.target.value})} className="border p-2 rounded-lg col-span-2" rows={2} />
+                        <input placeholder="URL Картинки" value={editingSlide.image} onChange={e => setEditingSlide({...editingSlide, image: e.target.value})} className="border p-2 rounded-lg" />
+                        <input placeholder="Ссылка кнопки" value={editingSlide.link} onChange={e => setEditingSlide({...editingSlide, link: e.target.value})} className="border p-2 rounded-lg" />
+                        <input placeholder="Текст кнопки" value={editingSlide.buttonText} onChange={e => setEditingSlide({...editingSlide, buttonText: e.target.value})} className="border p-2 rounded-lg" />
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm">Порядок:</label>
+                            <input type="number" value={editingSlide.order} onChange={e => setEditingSlide({...editingSlide, order: Number(e.target.value)})} className="border p-2 rounded-lg w-20" />
+                        </div>
+                        <div className="flex items-center gap-2 col-span-2">
+                            <input type="checkbox" checked={editingSlide.isActive} onChange={e => setEditingSlide({...editingSlide, isActive: e.target.checked})} />
+                            <label>Активен</label>
+                        </div>
+                    </div>
+                    <div className="flex gap-2">
+                        <button onClick={saveSlide} className="bg-brand-500 text-white px-4 py-2 rounded-lg">Сохранить</button>
+                        <button onClick={() => setEditingSlide(null)} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">Отмена</button>
+                    </div>
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {promoSlides.map(slide => (
+                    <div key={slide.id} className="bg-white rounded-2xl shadow-sm overflow-hidden border group">
+                        <div className="h-40 bg-gray-100 relative">
+                            <img src={slide.image} className="w-full h-full object-cover" />
+                            <div className="absolute top-2 right-2 bg-white/90 px-2 py-1 rounded text-xs font-bold">#{slide.order}</div>
+                        </div>
+                        <div className="p-4">
+                            <h4 className="font-bold line-clamp-1">{slide.title}</h4>
+                            <div className="flex justify-between items-center mt-4">
+                                <span className={`text-xs px-2 py-1 rounded ${slide.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{slide.isActive ? 'Active' : 'Draft'}</span>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setEditingSlide(slide)} className="p-2 hover:bg-gray-100 rounded"><Edit size={16}/></button>
+                                    <button onClick={() => deleteSlide(slide.id)} className="p-2 hover:bg-red-50 text-red-500 rounded"><Trash2 size={16}/></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+  };
+
+  const ProductList = () => {
+    return (
+        <div className="space-y-6 animate-fade-in-up">
+            <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-primary-900">Товары ({products.length})</h2>
+                <button 
+                  onClick={() => { setEditingProduct(null); setActiveView('ADD_PRODUCT'); }} 
+                  className="bg-brand-500 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold hover:bg-brand-600 transition"
+                >
+                    <Plus size={18} /> Добавить товар
+                </button>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-card overflow-hidden border border-gray-100">
+                <table className="w-full text-left border-collapse">
+                    <thead className="bg-gray-50 text-slate-500 text-xs uppercase tracking-wider">
+                        <tr>
+                            <th className="p-4">Фото</th>
+                            <th className="p-4">Название / Артикул</th>
+                            <th className="p-4">Категория</th>
+                            <th className="p-4">Цена / Остаток</th>
+                            <th className="p-4">Статус</th>
+                            <th className="p-4 text-right">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {products.map(product => (
+                            <tr key={product.id} className="hover:bg-gray-50/50 transition">
+                                <td className="p-4 w-20">
+                                    <img src={product.image || 'https://via.placeholder.com/40'} className="w-12 h-12 rounded-lg object-cover bg-gray-100" />
+                                </td>
+                                <td className="p-4">
+                                    <div className="font-bold text-primary-900">{product.name}</div>
+                                    <div className="text-xs text-slate-400">{product.article}</div>
+                                </td>
+                                <td className="p-4 text-sm font-medium text-slate-600">
+                                    {product.category}
+                                </td>
+                                <td className="p-4">
+                                    <div className="font-bold">{product.pricePerTon.toLocaleString()} ₽</div>
+                                    <div className="text-xs text-slate-400">{product.stock} т.</div>
+                                </td>
+                                <td className="p-4">
+                                    <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                        product.status === 'in_stock' ? 'bg-green-100 text-green-700' : 
+                                        product.status === 'out_of_stock' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                    }`}>
+                                        {product.status === 'in_stock' ? 'В наличии' : product.status}
+                                    </span>
+                                </td>
+                                <td className="p-4 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                        <button onClick={() => { setEditingProduct(product); setActiveView('ADD_PRODUCT'); }} className="p-2 text-slate-400 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition"><Edit size={16}/></button>
+                                        <button onClick={() => duplicateProduct(product)} className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition"><Copy size={16}/></button>
+                                        <button onClick={() => deleteProduct(product.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"><Trash2 size={16}/></button>
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                {products.length === 0 && <div className="p-8 text-center text-slate-400">Нет товаров. Добавьте первый товар.</div>}
+            </div>
+        </div>
+    );
+  };
+
+  const ProductEditor = () => {
+      const [form, setForm] = useState<Partial<Product>>(editingProduct || {
+          name: '',
+          article: '',
+          category: ProductCategory.REBAR,
+          pricePerTon: 0,
+          pricePerMeter: 0,
+          stock: 0,
+          status: 'in_stock',
+          steelGrade: '',
+          dimensions: '',
+          image: '',
+          description: '',
+          attributes: [],
+          seo: { title: '', description: '', keywords: [] },
+          pricing: { retail: 0, wholesale: 0, dealer: 0, pricePerMeter: 0, vatIncluded: true }
+      });
+
+      const handleChange = (field: string, value: any) => {
+          setForm(prev => ({ ...prev, [field]: value }));
+      };
+      
+      const handlePricingChange = (field: string, value: any) => {
+          setForm(prev => ({
+              ...prev,
+              pricing: { ...prev.pricing, [field]: value } as ProductPricing
+          }));
+      };
+
+      const handleSaveForm = () => {
+          if (!form.name || !form.category) return alert('Название и категория обязательны');
+          // Basic slug generation if missing
+          if (!form.slug) {
+              form.slug = form.name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '');
+          }
+          saveProduct(form);
+      };
+
+      return (
+          <div className="max-w-4xl mx-auto space-y-8 animate-fade-in-up pb-10">
+              <div className="flex items-center gap-4 mb-6">
+                  <button onClick={() => setActiveView('PRODUCTS')} className="p-2 hover:bg-white rounded-full transition"><ChevronRight className="rotate-180" /></button>
+                  <h2 className="text-2xl font-bold text-primary-900">{editingProduct ? 'Редактирование товара' : 'Новый товар'}</h2>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  <div className="md:col-span-2 space-y-6">
+                      {/* Basic Info */}
+                      <div className="bg-white p-6 rounded-3xl shadow-card space-y-4">
+                          <h3 className="font-bold text-lg mb-2">Основная информация</h3>
+                          <div className="grid grid-cols-2 gap-4">
+                              <div className="col-span-2">
+                                  <label className="label text-xs font-bold text-slate-400">Название</label>
+                                  <input className="w-full border p-3 rounded-xl bg-gray-50" value={form.name} onChange={e => handleChange('name', e.target.value)} />
+                              </div>
+                              <div>
+                                  <label className="label text-xs font-bold text-slate-400">Артикул</label>
+                                  <input className="w-full border p-3 rounded-xl bg-gray-50" value={form.article} onChange={e => handleChange('article', e.target.value)} />
+                              </div>
+                              <div>
+                                  <label className="label text-xs font-bold text-slate-400">Категория</label>
+                                  <select className="w-full border p-3 rounded-xl bg-gray-50" value={form.category as string} onChange={e => handleChange('category', e.target.value)}>
+                                      {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                      {/* Fallback to enum if categories empty */}
+                                      {categories.length === 0 && Object.values(ProductCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                                  </select>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* Specs */}
+                      <div className="bg-white p-6 rounded-3xl shadow-card space-y-4">
+                          <h3 className="font-bold text-lg mb-2">Характеристики</h3>
+                          <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                  <label className="label text-xs font-bold text-slate-400">Марка стали</label>
+                                  <input className="w-full border p-3 rounded-xl bg-gray-50" value={form.steelGrade} onChange={e => handleChange('steelGrade', e.target.value)} />
+                              </div>
+                              <div>
+                                  <label className="label text-xs font-bold text-slate-400">Размеры (Диаметр/Толщина)</label>
+                                  <input className="w-full border p-3 rounded-xl bg-gray-50" value={form.dimensions} onChange={e => handleChange('dimensions', e.target.value)} />
+                              </div>
+                          </div>
+                      </div>
+                      
+                      {/* Description */}
+                      <div className="bg-white p-6 rounded-3xl shadow-card space-y-4">
+                           <h3 className="font-bold text-lg mb-2">Описание</h3>
+                           <textarea className="w-full border p-3 rounded-xl bg-gray-50 h-32" value={form.description} onChange={e => handleChange('description', e.target.value)} />
+                      </div>
+                  </div>
+
+                  <div className="space-y-6">
+                      {/* Pricing & Stock */}
+                      <div className="bg-white p-6 rounded-3xl shadow-card space-y-4">
+                          <h3 className="font-bold text-lg mb-2">Цена и склад</h3>
+                          <div>
+                              <label className="label text-xs font-bold text-slate-400">Цена за тонну (₽)</label>
+                              <input type="number" className="w-full border p-3 rounded-xl bg-gray-50 text-lg font-bold" value={form.pricePerTon} onChange={e => handleChange('pricePerTon', Number(e.target.value))} />
+                          </div>
+                          <div>
+                              <label className="label text-xs font-bold text-slate-400">Цена за метр (₽)</label>
+                              <input type="number" className="w-full border p-3 rounded-xl bg-gray-50" value={form.pricePerMeter} onChange={e => handleChange('pricePerMeter', Number(e.target.value))} />
+                          </div>
+                          <div>
+                              <label className="label text-xs font-bold text-slate-400">Остаток (т)</label>
+                              <input type="number" className="w-full border p-3 rounded-xl bg-gray-50" value={form.stock} onChange={e => handleChange('stock', Number(e.target.value))} />
+                          </div>
+                          <div>
+                              <label className="label text-xs font-bold text-slate-400">Статус</label>
+                              <select className="w-full border p-3 rounded-xl bg-gray-50" value={form.status} onChange={e => handleChange('status', e.target.value)}>
+                                  <option value="in_stock">В наличии</option>
+                                  <option value="low_stock">Мало</option>
+                                  <option value="out_of_stock">Нет в наличии</option>
+                                  <option value="hidden">Скрыт</option>
+                              </select>
+                          </div>
+                      </div>
+
+                      {/* Media */}
+                      <div className="bg-white p-6 rounded-3xl shadow-card space-y-4">
+                          <h3 className="font-bold text-lg mb-2">Медиа</h3>
+                          <div>
+                              <label className="label text-xs font-bold text-slate-400">URL Изображения</label>
+                              <input className="w-full border p-3 rounded-xl bg-gray-50 text-sm" value={form.image} onChange={e => handleChange('image', e.target.value)} />
+                          </div>
+                          {form.image && (
+                              <div className="rounded-xl overflow-hidden h-40 bg-gray-100">
+                                  <img src={form.image} className="w-full h-full object-cover" />
+                              </div>
+                          )}
+                      </div>
+                  </div>
+              </div>
+
+              <div className="flex gap-4 pt-4 border-t border-gray-200">
+                  <button onClick={handleSaveForm} className="bg-brand-500 text-white px-8 py-4 rounded-xl font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/20 flex-1">Сохранить товар</button>
+                  <button onClick={() => setActiveView('PRODUCTS')} className="bg-gray-100 text-primary-900 px-8 py-4 rounded-xl font-bold hover:bg-gray-200 transition">Отмена</button>
+              </div>
+          </div>
+      );
+  };
 
   // Simplified Dashboard for stability
   const Dashboard = () => (
@@ -704,13 +766,16 @@ export const Admin: React.FC = () => {
           <SidebarItem view="PRODUCTS" icon={Package} label="Товары" />
           <SidebarItem view="CATEGORIES" icon={FolderTree} label="Категории" />
           <SidebarItem view="ATTRIBUTES" icon={SlidersHorizontal} label="Атрибуты" />
+          <SidebarItem view="PROMO" icon={Megaphone} label="Акции / Слайдер" />
         </nav>
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-20 bg-white/80 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-8 z-10">
           <div className="text-sm breadcrumbs text-slate-400 hidden md:block">
-            Админ панель <span className="mx-2">/</span> <span className="text-primary-900 font-bold">{activeView}</span>
+            Админ панель <span className="mx-2">/</span> <span className="text-primary-900 font-bold">{
+               activeView === 'PROMO' ? 'Слайдер' : activeView
+            }</span>
           </div>
           <div className="flex items-center gap-3">
              <div className="w-10 h-10 bg-primary-900 rounded-xl flex items-center justify-center text-white font-bold">A</div>
@@ -724,6 +789,7 @@ export const Admin: React.FC = () => {
            {activeView === 'IMPORT' && <div className="p-8 text-center text-slate-400">Импорт в разработке (требуются библиотеки парсинга)</div>}
            {activeView === 'CATEGORIES' && <CategoryManager />}
            {activeView === 'ATTRIBUTES' && <AttributeManager />}
+           {activeView === 'PROMO' && <PromoManager />}
         </main>
       </div>
     </div>

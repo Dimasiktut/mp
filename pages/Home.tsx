@@ -1,76 +1,102 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ShieldCheck, Truck, Zap, Box, Star, PlayCircle, TrendingUp } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Truck, Zap, Box, Star, PlayCircle, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MetalCalculator } from '../components/MetalCalculator';
-import { ProductCategory } from '../types';
+import { ProductCategory, PromoSlide } from '../types';
 import { CATEGORY_IMAGES } from '../constants';
 import { supabase, mapProductFromDB } from '../lib/supabase';
 
-// Fallback items if DB is empty
-const DEFAULT_FEATURED = [
+// Default slide if DB is empty
+const DEFAULT_SLIDES: PromoSlide[] = [
   {
-    name: "Арматура А500С",
-    price: "45,000 ₽",
-    trend: "+2.4%",
-    image: "https://images.unsplash.com/photo-1626372412809-54129532822a?auto=format&fit=crop&w=600&q=80",
-    chart: [40, 65, 55, 80, 70, 90, 85]
+    id: 'default-1',
+    title: 'Стальной характер вашего бизнеса',
+    description: 'Комплексные поставки металлопроката напрямую от завода-производителя.',
+    image: 'https://images.unsplash.com/photo-1558346490-a72e53ae2d4f?ixlib=rb-1.2.1&auto=format&fit=crop&w=2000&q=80',
+    buttonText: 'Открыть каталог',
+    link: '/catalog',
+    isActive: true,
+    order: 1
   }
 ];
 
 export const Home: React.FC = () => {
-  const [currentFeatureIndex, setCurrentFeatureIndex] = useState(0);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [featuredItems, setFeaturedItems] = useState<any[]>(DEFAULT_FEATURED);
+  const [slides, setSlides] = useState<PromoSlide[]>([]);
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [featuredItem, setFeaturedItem] = useState<any>(null);
 
   useEffect(() => {
-    const fetchFeatured = async () => {
-      // Get 3 random or latest products from Supabase
-      const { data } = await supabase.from('products').select('*').limit(3);
-      if (data && data.length > 0) {
-        setFeaturedItems(data.map(mapProductFromDB).map(p => ({
+    const fetchData = async () => {
+      // Fetch Slides
+      const { data: slideData } = await supabase.from('promo_slides').select('*').eq('is_active', true).order('order', { ascending: true });
+      if (slideData && slideData.length > 0) {
+        setSlides(slideData.map((s: any) => ({
+           id: s.id,
+           title: s.title,
+           description: s.description,
+           image: s.image,
+           link: s.link,
+           buttonText: s.button_text,
+           isActive: s.is_active,
+           order: s.order
+        })));
+      } else {
+        setSlides(DEFAULT_SLIDES);
+      }
+
+      // Fetch 1 Featured Product for floating card
+      const { data: prodData } = await supabase.from('products').select('*').limit(1);
+      if (prodData && prodData.length > 0) {
+        const p = mapProductFromDB(prodData[0]);
+        setFeaturedItem({
             name: p.name,
             price: `${p.pricePerTon.toLocaleString()} ₽`,
-            trend: "+2.4%", // Mock trend for now
+            trend: "+2.4%", 
             image: p.image || "https://images.unsplash.com/photo-1626372412809-54129532822a?auto=format&fit=crop&w=600&q=80",
-            chart: [40, 65, 55, 80, 70, 90, 85] // Mock chart
-        })));
+            chart: [40, 65, 55, 80, 70, 90, 85]
+        });
       }
     };
-    fetchFeatured();
+    fetchData();
   }, []);
 
   useEffect(() => {
-    if (featuredItems.length <= 1) return;
+    if (slides.length <= 1) return;
     const interval = setInterval(() => {
-      setIsAnimating(true);
-      setTimeout(() => {
-        setCurrentFeatureIndex((prev) => (prev + 1) % featuredItems.length);
-        setIsAnimating(false);
-      }, 500); // Wait for fade out
-    }, 5000); // Change every 5 seconds
-
+      setCurrentSlideIndex((prev) => (prev + 1) % slides.length);
+    }, 6000); 
     return () => clearInterval(interval);
-  }, [featuredItems]);
+  }, [slides]);
 
-  const currentItem = featuredItems[currentFeatureIndex];
+  const nextSlide = () => setCurrentSlideIndex((prev) => (prev + 1) % slides.length);
+  const prevSlide = () => setCurrentSlideIndex((prev) => (prev - 1 + slides.length) % slides.length);
+
+  const currentSlide = slides[currentSlideIndex] || DEFAULT_SLIDES[0];
 
   return (
     <div className="pb-20 bg-primary-50">
       
-      {/* Modern Hero Section */}
-      <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-primary-900 rounded-b-[3rem] md:rounded-b-[5rem] shadow-2xl mb-12">
+      {/* Dynamic Slider Hero Section */}
+      <section className="relative min-h-[85vh] flex items-center overflow-hidden bg-primary-900 rounded-b-[3rem] md:rounded-b-[5rem] shadow-2xl mb-12">
         
-        {/* Background Image & Overlay */}
-        <div className="absolute inset-0 z-0">
-          <img 
-            src="https://images.unsplash.com/photo-1558346490-a72e53ae2d4f?ixlib=rb-1.2.1&auto=format&fit=crop&w=2000&q=80" 
-            alt="Современный завод" 
-            className="w-full h-full object-cover opacity-40 scale-105"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-primary-900 via-primary-900/90 to-primary-900/40"></div>
-          <div className="absolute inset-0 bg-gradient-to-t from-primary-900 to-transparent"></div>
-        </div>
+        {/* Slider Backgrounds */}
+        {slides.map((slide, index) => (
+           <div 
+             key={slide.id}
+             className={`absolute inset-0 z-0 transition-opacity duration-1000 ease-in-out ${index === currentSlideIndex ? 'opacity-100' : 'opacity-0'}`}
+           >
+              <img 
+                src={slide.image} 
+                alt={slide.title} 
+                className="w-full h-full object-cover opacity-40 scale-105 transform transition-transform duration-[10000ms] ease-linear"
+                style={{ transform: index === currentSlideIndex ? 'scale(1.1)' : 'scale(1.0)' }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-primary-900 via-primary-900/90 to-primary-900/40"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-primary-900 to-transparent"></div>
+           </div>
+        ))}
 
+        {/* Content Container */}
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full pt-20">
           <div className="grid md:grid-cols-2 gap-12 items-center">
             
@@ -80,26 +106,30 @@ export const Home: React.FC = () => {
                 Лидер рынка 2024
               </div>
               
-              <h1 className="text-5xl md:text-7xl font-extrabold text-white leading-tight tracking-tight">
-                Стальной характер <br/>
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-500 to-orange-400">вашего бизнеса</span>
-              </h1>
-              
-              <p className="text-lg text-slate-300 leading-relaxed max-w-lg">
-                Комплексные поставки металлопроката напрямую от завода-производителя. 
-                Инновационная логистика, точный вес и безупречное качество по ГОСТ.
-              </p>
-              
-              <div className="flex flex-col sm:flex-row gap-5 pt-4">
-                <Link to="/catalog" className="px-8 py-4 bg-brand-500 hover:bg-brand-600 text-white rounded-xl font-bold text-lg transition shadow-lg shadow-brand-500/30 flex items-center justify-center gap-2">
-                  Открыть каталог
-                </Link>
-                <button className="px-8 py-4 bg-white/5 backdrop-blur-sm border border-white/20 text-white hover:bg-white/10 rounded-xl font-bold text-lg transition flex items-center justify-center gap-3">
-                  <PlayCircle size={24} />
-                  Видео о нас
-                </button>
+              {/* Animated Text */}
+              <div key={currentSlide.id} className="animate-fade-in-up">
+                <h1 className="text-4xl md:text-6xl font-extrabold text-white leading-tight tracking-tight mb-6">
+                  {currentSlide.title}
+                </h1>
+                
+                <p className="text-lg text-slate-300 leading-relaxed max-w-lg mb-8">
+                  {currentSlide.description}
+                </p>
+                
+                <div className="flex flex-col sm:flex-row gap-5">
+                  {currentSlide.link && (
+                    <Link to={currentSlide.link} className="px-8 py-4 bg-brand-500 hover:bg-brand-600 text-white rounded-xl font-bold text-lg transition shadow-lg shadow-brand-500/30 flex items-center justify-center gap-2">
+                      {currentSlide.buttonText || 'Подробнее'}
+                    </Link>
+                  )}
+                  <button className="px-8 py-4 bg-white/5 backdrop-blur-sm border border-white/20 text-white hover:bg-white/10 rounded-xl font-bold text-lg transition flex items-center justify-center gap-3">
+                    <PlayCircle size={24} />
+                    Видео о нас
+                  </button>
+                </div>
               </div>
 
+              {/* Stats Bar */}
               <div className="flex items-center gap-8 pt-8 border-t border-white/10">
                 <div>
                   <div className="text-3xl font-bold text-white">50k+</div>
@@ -118,47 +148,37 @@ export const Home: React.FC = () => {
               </div>
             </div>
 
-            {/* Dynamic Floating Glass Card */}
+            {/* Featured Product Overlay (Right Side) */}
+            {featuredItem && (
             <div className="hidden md:block relative animate-float">
                <div className="absolute -inset-4 bg-brand-500/20 blur-3xl rounded-full"></div>
                
                <div className="relative bg-white/10 backdrop-blur-md border border-white/20 p-6 rounded-[2rem] shadow-2xl w-[360px] mx-auto transition-all duration-300 hover:scale-[1.02]">
-                 
-                 {/* Product Image Area */}
-                 <div className={`h-48 w-full rounded-2xl overflow-hidden mb-5 relative shadow-lg transition-opacity duration-500 ${isAnimating ? 'opacity-50' : 'opacity-100'}`}>
+                 <div className="h-48 w-full rounded-2xl overflow-hidden mb-5 relative shadow-lg">
                     <img 
-                      src={currentItem.image} 
-                      alt={currentItem.name} 
-                      className="w-full h-full object-cover transform hover:scale-110 transition-transform duration-700"
+                      src={featuredItem.image} 
+                      alt={featuredItem.name} 
+                      className="w-full h-full object-cover"
                     />
                     <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-bold text-green-400 flex items-center gap-1 border border-white/10">
-                      <TrendingUp size={12} /> {currentItem.trend}
+                      <TrendingUp size={12} /> {featuredItem.trend}
                     </div>
                     <div className="absolute bottom-3 left-3 bg-brand-500/90 backdrop-blur-sm px-3 py-1 rounded-lg text-xs font-bold text-white shadow-lg">
                       Хит продаж
                     </div>
                  </div>
 
-                 <div className={`transition-opacity duration-500 ${isAnimating ? 'opacity-50' : 'opacity-100'}`}>
+                 <div>
                    <div className="flex justify-between items-end mb-4">
                      <div>
-                       <h3 className="text-2xl font-bold text-white leading-tight">{currentItem.name}</h3>
+                       <h3 className="text-2xl font-bold text-white leading-tight">{featuredItem.name}</h3>
                        <p className="text-slate-400 text-xs mt-1">В наличии на складе</p>
                      </div>
                    </div>
 
-                   {/* Chart Line */}
-                   <div className="h-12 flex items-end justify-between gap-2 mb-6">
-                      {currentItem.chart?.map((h: number, i: number) => (
-                        <div key={i} className="w-full bg-white/5 rounded-t-sm relative group">
-                          <div style={{height: `${h}%`}} className="absolute bottom-0 w-full bg-gradient-to-t from-brand-500 to-orange-400 rounded-t-sm transition-all duration-1000"></div>
-                        </div>
-                      ))}
-                   </div>
-
                    <div className="flex justify-between items-center border-t border-white/10 pt-4">
                      <div>
-                       <div className="text-3xl font-bold text-white tracking-tight">{currentItem.price}</div>
+                       <div className="text-3xl font-bold text-white tracking-tight">{featuredItem.price}</div>
                        <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Цена за тонну</div>
                      </div>
                      <Link to="/catalog" className="w-12 h-12 rounded-full bg-white text-primary-900 flex items-center justify-center shadow-lg hover:bg-brand-500 hover:text-white transition-all duration-300 group">
@@ -166,12 +186,28 @@ export const Home: React.FC = () => {
                      </Link>
                    </div>
                  </div>
-
                </div>
             </div>
-
+            )}
           </div>
         </div>
+
+        {/* Slide Controls */}
+        {slides.length > 1 && (
+           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex gap-4">
+              <button onClick={prevSlide} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md transition"><ChevronLeft size={24}/></button>
+              <div className="flex gap-2 items-center">
+                 {slides.map((_, idx) => (
+                    <button 
+                      key={idx} 
+                      onClick={() => setCurrentSlideIndex(idx)}
+                      className={`h-2 rounded-full transition-all duration-300 ${currentSlideIndex === idx ? 'w-8 bg-brand-500' : 'w-2 bg-white/50 hover:bg-white'}`}
+                    />
+                 ))}
+              </div>
+              <button onClick={nextSlide} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md transition"><ChevronRight size={24}/></button>
+           </div>
+        )}
       </section>
 
       {/* Categories Grid - Clean & Minimal */}

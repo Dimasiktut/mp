@@ -23,6 +23,17 @@ export interface GlobalAttribute {
   options?: string[]; // For select types
 }
 
+export interface PromoSlide {
+  id: string;
+  title: string;
+  description: string;
+  image: string; // Background image URL
+  buttonText: string;
+  link: string;
+  isActive: boolean;
+  order: number;
+}
+
 export interface ProductDocument {
   id: string;
   name: string;

@@ -6,6 +6,18 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Helper for mapping Category from DB
+export const mapCategoryFromDB = (row: any): any => ({
+  id: row.id,
+  name: row.name,
+  slug: row.slug,
+  image: row.image,
+  description: row.description, // HTML/Text description
+  seo: row.seo || { title: '', description: '', h1: '', seoText: '' },
+  parentId: row.parent_id,
+  count: 0 // Can be populated separately
+});
+
 // Хелпер для маппинга данных из БД (snake_case) в приложение (camelCase)
 export const mapProductFromDB = (row: any): any => {
   const defaultPricing = { 
