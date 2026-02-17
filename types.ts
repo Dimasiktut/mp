@@ -12,20 +12,38 @@ export interface ProductAttribute {
   id: string;
   name: string; // e.g., "Steel Grade", "Diameter"
   value: string; // e.g., "A500C", "12mm"
-  type: 'text' | 'number' | 'select';
+  type: 'text' | 'number' | 'select' | 'checkbox';
+}
+
+export interface GlobalAttribute {
+  id: string;
+  name: string;
+  slug: string;
+  type: 'text' | 'number' | 'select' | 'checkbox';
+  options?: string[]; // For select types
+}
+
+export interface ProductDocument {
+  id: string;
+  name: string;
+  url: string;
+  type: 'certificate' | 'gost' | 'passport';
 }
 
 export interface ProductSEO {
   title: string;
   description: string;
   keywords: string[];
+  h1?: string;
+  seoText?: string;
 }
 
 export interface ProductPricing {
   retail: number; // per ton
-  wholesale: number; // per ton
-  dealer: number; // per ton
+  wholesale: number; // per ton (e.g. > 5 tons)
+  dealer: number; // per ton (contract)
   pricePerMeter: number;
+  vatIncluded: boolean;
 }
 
 export interface Product {
@@ -34,6 +52,7 @@ export interface Product {
   slug: string;
   article: string; // SKU
   category: ProductCategory | string;
+  tags: string[];
   
   // Pricing & Stock
   pricePerTon: number; // Base retail price (legacy support)
@@ -51,6 +70,7 @@ export interface Product {
   // Media & Info
   image: string;
   description?: string;
+  documents?: ProductDocument[];
   
   // SEO
   seo?: ProductSEO;
@@ -82,5 +102,13 @@ export interface Category {
   name: string;
   slug: string;
   parentId?: string;
+  image?: string;
+  seo?: ProductSEO;
   count: number;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  slug: string;
 }

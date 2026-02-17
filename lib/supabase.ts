@@ -12,7 +12,10 @@ export const mapProductFromDB = (row: any): any => ({
   pricePerTon: row.price_per_ton,
   pricePerMeter: row.price_per_meter,
   steelGrade: row.steel_grade,
-  // pricing, attributes и seo хранятся как JSONB и приходят как объекты
+  // JSONB fields are automatically parsed
+  tags: row.tags || [],
+  documents: row.documents || [],
+  pricing: row.pricing || { retail: row.price_per_ton, wholesale: 0, dealer: 0, pricePerMeter: row.price_per_meter, vatIncluded: true }
 });
 
 export const mapProductToDB = (product: any): any => ({
@@ -29,9 +32,12 @@ export const mapProductToDB = (product: any): any => ({
   dimensions: product.dimensions,
   image: product.image,
   description: product.description,
+  // New JSONB fields
   pricing: product.pricing,
   attributes: product.attributes,
   seo: product.seo,
+  tags: product.tags,
+  documents: product.documents,
   updated_at: new Date().toISOString()
 });
 
@@ -45,7 +51,9 @@ export const generateSEO = (product: any) => {
   // Иначе генерируем по шаблону
   return {
     title: `Купить ${product.name} - цена ${product.pricePerTon} руб/тонна | MetalProm`,
-    description: `Продажа ${product.name} оптом и в розницу. Характеристики: ${product.steelGrade}, ${product.dimensions}. В наличии на складе. Доставка.`,
-    keywords: [product.name, 'купить металлопрокат', product.category, 'цена за тонну']
+    description: `Продажа ${product.name} оптом и в розницу. Характеристики: ${product.steelGrade}, ${product.dimensions}. В наличии на складе. Доставка по РФ.`,
+    keywords: [product.name, 'купить металлопрокат', product.category, 'цена за тонну', product.steelGrade],
+    h1: product.name,
+    seoText: `Выгодное предложение на ${product.name} от производителя.`
   };
 };
