@@ -11,7 +11,7 @@ import {
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ADMIN_STATS } from '../constants';
 import { Product, ProductCategory, ProductAttribute, Order, ProductPricing, ProductDocument, GlobalAttribute, PromoSlide, Category } from '../types';
-import { supabase, mapProductFromDB, mapProductToDB, mapCategoryFromDB } from '../lib/supabase';
+import { supabase, mapProductFromDB, mapProductToDB, mapCategoryFromDB, transliterate } from '../lib/supabase';
 
 // Types for Internal State
 type ViewState = 'DASHBOARD' | 'PRODUCTS' | 'ADD_PRODUCT' | 'CATEGORIES' | 'IMPORT' | 'ATTRIBUTES' | 'TAGS' | 'SEO_SETTINGS' | 'PROMO';
@@ -48,7 +48,9 @@ export const Admin: React.FC = () => {
     try {
       // 1. Products
       const { data: prodData } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-      if (prodData) setProducts(prodData.map(mapProductFromDB));
+      if (prodData) {
+        setProducts(prodData.map(mapProductFromDB));
+      }
 
       // 2. Orders
       const { data: orderData } = await supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(10);
@@ -96,7 +98,7 @@ export const Admin: React.FC = () => {
     if (!window.confirm('Вы уверены? Это действие необратимо.')) return;
     const { error } = await supabase.from('products').delete().eq('id', id);
     if (!error) {
-       setProducts(products.filter(p => p.id !== id));
+       setProducts(prev => prev.filter(p => p.id !== id));
     } else {
       alert('Ошибка удаления: ' + error.message);
     }
@@ -115,16 +117,23 @@ export const Admin: React.FC = () => {
 
   const saveProduct = async (productData: any) => {
      const dbData = mapProductToDB(productData);
+     
+     // Ensure ID is removed if it's undefined/null to trigger auto-increment/uuid gen
      if (!productData.id) delete dbData.id;
 
      const { data, error } = await supabase.from('products').upsert(dbData).select().single();
+     
      if (!error && data) {
        const mapped = mapProductFromDB(data);
-       if (editingProduct?.id) setProducts(products.map(p => p.id === mapped.id ? mapped : p));
-       else setProducts([mapped, ...products]);
+       if (productData.id) {
+         setProducts(prev => prev.map(p => p.id === mapped.id ? mapped : p));
+       } else {
+         setProducts(prev => [mapped, ...prev]);
+       }
        setActiveView('PRODUCTS');
        setEditingProduct(null);
      } else {
+       console.error("Supabase Error:", error);
        alert('Ошибка сохранения: ' + (error?.message || 'Неизвестная ошибка'));
      }
   };
@@ -154,7 +163,7 @@ export const Admin: React.FC = () => {
        
        const dbData = {
           name: editingCategory.name,
-          slug: editingCategory.slug || editingCategory.name.toLowerCase().replace(/\s/g, '-'),
+          slug: editingCategory.slug || transliterate(editingCategory.name),
           image: editingCategory.image,
           description: editingCategory.description,
           seo: editingCategory.seo,
@@ -252,10 +261,11 @@ export const Admin: React.FC = () => {
                       />
                    </div>
                    <div>
-                      <label className="block text-xs font-bold text-slate-400 mb-1">ЧПУ (Slug)</label>
+                      <label className="block text-xs font-bold text-slate-400 mb-1">ЧПУ (Slug) - Автоматически</label>
                       <input 
                          className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
                          value={editingCategory.slug}
+                         placeholder={editingCategory.name ? transliterate(editingCategory.name) : ''}
                          onChange={e => setEditingCategory({...editingCategory, slug: e.target.value})}
                       />
                    </div>
@@ -435,14 +445,40 @@ export const Admin: React.FC = () => {
 
     const saveSlide = async () => {
          if (!editingSlide) return;
-         const { data, error } = await supabase.from('promo_slides').upsert(editingSlide).select().single();
+         
+         // Map to Snake Case for DB
+         const dbData = {
+             id: editingSlide.id,
+             title: editingSlide.title,
+             description: editingSlide.description,
+             image: editingSlide.image,
+             link: editingSlide.link,
+             button_text: editingSlide.buttonText,
+             is_active: editingSlide.isActive,
+             order: editingSlide.order
+         };
+         if (!dbData.id) delete dbData.id;
+
+         const { data, error } = await supabase.from('promo_slides').upsert(dbData).select().single();
          if (!error && data) {
+             // Map back to Camel Case for Local State
+             const mappedData = {
+                id: data.id,
+                title: data.title,
+                description: data.description,
+                image: data.image,
+                link: data.link,
+                buttonText: data.button_text,
+                isActive: data.is_active,
+                order: data.order
+             };
+
              setPromoSlides(prev => {
-                 const idx = prev.findIndex(s => s.id === data.id);
+                 const idx = prev.findIndex(s => s.id === mappedData.id);
                  if (idx >= 0) {
-                     const n = [...prev]; n[idx] = data; return n;
+                     const n = [...prev]; n[idx] = mappedData; return n;
                  }
-                 return [...prev, data];
+                 return [...prev, mappedData];
              });
              setEditingSlide(null);
          } else {
@@ -582,7 +618,7 @@ export const Admin: React.FC = () => {
       const [form, setForm] = useState<Partial<Product>>(editingProduct || {
           name: '',
           article: '',
-          category: ProductCategory.REBAR,
+          category: categories.length > 0 ? categories[0].name : ProductCategory.REBAR,
           pricePerTon: 0,
           pricePerMeter: 0,
           stock: 0,
@@ -609,10 +645,12 @@ export const Admin: React.FC = () => {
 
       const handleSaveForm = () => {
           if (!form.name || !form.category) return alert('Название и категория обязательны');
-          // Basic slug generation if missing
+          
+          // Generate slug if missing or empty, using proper transliteration
           if (!form.slug) {
-              form.slug = form.name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '');
+              form.slug = transliterate(form.name);
           }
+          
           saveProduct(form);
       };
 
@@ -640,9 +678,10 @@ export const Admin: React.FC = () => {
                               <div>
                                   <label className="label text-xs font-bold text-slate-400">Категория</label>
                                   <select className="w-full border p-3 rounded-xl bg-gray-50" value={form.category as string} onChange={e => handleChange('category', e.target.value)}>
-                                      {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                                      {/* Fallback to enum if categories empty */}
-                                      {categories.length === 0 && Object.values(ProductCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                                      {categories.length > 0 
+                                        ? categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)
+                                        : Object.values(ProductCategory).map(c => <option key={c} value={c}>{c}</option>)
+                                      }
                                   </select>
                               </div>
                           </div>

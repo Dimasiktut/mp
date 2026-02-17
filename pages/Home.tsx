@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ShieldCheck, Truck, Zap, Box, Star, PlayCircle, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Truck, Zap, Box, Star, PlayCircle, TrendingUp, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MetalCalculator } from '../components/MetalCalculator';
-import { ProductCategory, PromoSlide } from '../types';
+import { ProductCategory, PromoSlide, Category } from '../types';
 import { CATEGORY_IMAGES } from '../constants';
-import { supabase, mapProductFromDB } from '../lib/supabase';
+import { supabase, mapProductFromDB, mapCategoryFromDB } from '../lib/supabase';
 
 // Default slide if DB is empty
 const DEFAULT_SLIDES: PromoSlide[] = [
@@ -24,6 +24,7 @@ export const Home: React.FC = () => {
   const [slides, setSlides] = useState<PromoSlide[]>([]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [featuredItem, setFeaturedItem] = useState<any>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -42,6 +43,17 @@ export const Home: React.FC = () => {
         })));
       } else {
         setSlides(DEFAULT_SLIDES);
+      }
+
+      // Fetch Categories (Max 8 to check if we need "Show More", we display 7)
+      const { data: catData } = await supabase.from('categories').select('*').order('name').limit(8);
+      if (catData && catData.length > 0) {
+         setCategories(catData.map(mapCategoryFromDB));
+      } else {
+         // Fallback categories (Enum)
+         setCategories(Object.values(ProductCategory).map((name, i) => ({ 
+             id: `def-${i}`, name, slug: name.toLowerCase(), count: 0 
+         })));
       }
 
       // Fetch 1 Featured Product for floating card
@@ -72,6 +84,9 @@ export const Home: React.FC = () => {
   const prevSlide = () => setCurrentSlideIndex((prev) => (prev - 1 + slides.length) % slides.length);
 
   const currentSlide = slides[currentSlideIndex] || DEFAULT_SLIDES[0];
+
+  // Logic for Grid: Show max 7 categories, then "All Categories" button
+  const displayCategories = categories.slice(0, 7);
 
   return (
     <div className="pb-20 bg-primary-50">
@@ -212,15 +227,23 @@ export const Home: React.FC = () => {
 
       {/* Categories Grid - Clean & Minimal */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-32 relative z-20">
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-          {Object.values(ProductCategory).map((cat) => (
-             <Link to={`/catalog?category=${cat}`} key={cat} className="group bg-white p-4 rounded-2xl shadow-card hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 text-center border border-gray-100">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+          {displayCategories.map((cat) => (
+             <Link to={`/catalog/${cat.slug}`} key={cat.id} className="group bg-white p-4 rounded-2xl shadow-card hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 text-center border border-gray-100 flex flex-col items-center justify-center h-full">
                <div className="w-12 h-12 mx-auto bg-primary-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-brand-500 transition-colors">
                   <Box size={20} className="text-primary-900 group-hover:text-white transition-colors" />
                </div>
-               <h3 className="font-bold text-primary-900 text-sm group-hover:text-brand-600 transition-colors">{cat}</h3>
+               <h3 className="font-bold text-primary-900 text-sm group-hover:text-brand-600 transition-colors leading-tight">{cat.name}</h3>
              </Link>
           ))}
+          
+          {/* Show More Button */}
+          <Link to="/catalog" className="group bg-primary-900 p-4 rounded-2xl shadow-card hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 text-center border border-primary-900 flex flex-col items-center justify-center h-full">
+             <div className="w-12 h-12 mx-auto bg-white/10 rounded-xl flex items-center justify-center mb-3 group-hover:bg-brand-500 transition-colors">
+                <Layers size={20} className="text-white" />
+             </div>
+             <h3 className="font-bold text-white text-sm">Все категории</h3>
+          </Link>
         </div>
       </section>
 
@@ -242,7 +265,7 @@ export const Home: React.FC = () => {
             {cat: ProductCategory.PIPES, title: 'Трубный прокат', desc: 'Профильные и круглые трубы'},
             {cat: ProductCategory.SHEET, title: 'Листовой прокат', desc: 'Г/К, Х/К и оцинкованные листы'}
           ].map((item, idx) => (
-            <Link to={`/catalog?category=${item.cat}`} key={idx} className="group relative h-[400px] rounded-3xl overflow-hidden shadow-card">
+            <Link to={`/catalog`} key={idx} className="group relative h-[400px] rounded-3xl overflow-hidden shadow-card">
               <img 
                 src={CATEGORY_IMAGES[item.cat]} 
                 alt={item.title} 

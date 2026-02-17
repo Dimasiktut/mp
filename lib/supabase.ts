@@ -6,6 +6,28 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Helper for transliteration (Cyrillic -> Latin)
+export const transliterate = (text: string): string => {
+  const ru: Record<string, string> = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 
+    'е': 'e', 'ё': 'e', 'ж': 'j', 'з': 'z', 'и': 'i', 
+    'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 
+    'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 
+    'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'c', 'ч': 'ch', 
+    'ш': 'sh', 'щ': 'shch', 'ы': 'y', 'э': 'e', 'ю': 'yu', 
+    'я': 'ya', ' ': '-', '_': '-'
+  };
+
+  return text
+    .toLowerCase()
+    .split('')
+    .map(char => ru[char] || char)
+    .join('')
+    .replace(/[^\w-]/g, '') // Remove non-word chars except dash
+    .replace(/-+/g, '-')    // Replace multiple dashes with one
+    .replace(/^-|-$/g, ''); // Trim dashes
+};
+
 // Helper for mapping Category from DB
 export const mapCategoryFromDB = (row: any): any => ({
   id: row.id,
