@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductCategory, Product } from '../types';
-import { ShoppingCart, Filter, Download, ChevronDown, Check, Loader2, ArrowRight } from 'lucide-react';
+import { Filter, ChevronDown, Check, Loader2, ArrowRight } from 'lucide-react';
 import { supabase, mapProductFromDB } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 
@@ -8,27 +8,29 @@ export const Catalog: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('Все');
   const [priceRange, setPriceRange] = useState<number>(100000);
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<string[]>(['Все', ...Object.values(ProductCategory)]);
   const [loading, setLoading] = useState(true);
 
-  const categories = ['Все', ...Object.values(ProductCategory)];
-
   useEffect(() => {
-    fetchProducts();
-  }, []);
+    const init = async () => {
+      try {
+        setLoading(true);
+        const { data: prodData } = await supabase.from('products').select('*');
+        if (prodData) setProducts(prodData.map(mapProductFromDB));
 
-  const fetchProducts = async () => {
-    try {
-      const { data, error } = await supabase.from('products').select('*');
-      if (error) throw error;
-      if (data) {
-        setProducts(data.map(mapProductFromDB));
+        // Fetch dynamic categories
+        const { data: catData } = await supabase.from('categories').select('*');
+        if (catData && catData.length > 0) {
+           setCategories(['Все', ...catData.map(c => c.name)]);
+        }
+      } catch (error) {
+        console.error('Error fetching catalog data:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error fetching products:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    init();
+  }, []);
 
   const filteredProducts = products.filter(p => 
     (selectedCategory === 'Все' || p.category === selectedCategory) &&
@@ -46,7 +48,6 @@ export const Catalog: React.FC = () => {
 
         <div className="flex flex-col lg:flex-row gap-12">
           
-          {/* Modern Filters Sidebar */}
           <aside className="w-full lg:w-72 flex-shrink-0">
             <div className="bg-white p-8 rounded-3xl shadow-card sticky top-28 border border-gray-100">
               <div className="flex items-center gap-2 mb-8 text-primary-900 font-bold text-xl">
@@ -90,25 +91,13 @@ export const Catalog: React.FC = () => {
                    onChange={(e) => setPriceRange(Number(e.target.value))}
                    className="w-full h-2 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-brand-500"
                  />
-                 <div className="flex justify-between text-xs text-slate-400 mt-2 font-medium">
-                   <span>0 ₽</span>
-                   <span>100к ₽</span>
-                 </div>
               </div>
-
-              <button className="w-full py-4 bg-primary-900 text-white rounded-xl text-sm font-bold hover:bg-primary-800 transition shadow-lg transform active:scale-95 duration-200">
-                Применить
-              </button>
             </div>
           </aside>
 
-          {/* Product Grid */}
           <div className="flex-1">
             <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
               <span className="text-slate-500 text-sm font-medium">Найдено: <strong className="text-primary-900">{filteredProducts.length}</strong> позиций</span>
-              <button className="flex items-center gap-2 text-sm font-bold text-primary-900 hover:text-brand-500 transition">
-                Сортировка <ChevronDown size={16} />
-              </button>
             </div>
 
             {loading ? (
@@ -124,30 +113,14 @@ export const Catalog: React.FC = () => {
                       <div className="absolute top-3 left-3 bg-white/90 backdrop-blur text-primary-900 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm uppercase tracking-wide">
                         {product.category}
                       </div>
-                      {/* Hover Actions Overlay */}
-                      <div className="absolute inset-0 bg-primary-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[2px]">
-                         <span className="px-4 py-2 bg-white rounded-xl font-bold text-sm text-primary-900 flex items-center gap-2 hover:scale-105 transition">
-                            Подробнее <ArrowRight size={16}/>
-                         </span>
-                      </div>
                     </div>
                     
                     <div className="px-2 pb-2 flex-grow flex flex-col">
                       <h3 className="font-bold text-lg text-primary-900 mb-3 leading-snug group-hover:text-brand-600 transition-colors">{product.name}</h3>
-                      
-                      <div className="flex flex-wrap gap-2 mb-6">
-                         <span className="px-3 py-1 bg-gray-50 rounded-lg text-xs font-semibold text-slate-500 border border-gray-100">{product.steelGrade}</span>
-                         <span className="px-3 py-1 bg-gray-50 rounded-lg text-xs font-semibold text-slate-500 border border-gray-100">{product.dimensions}</span>
-                      </div>
-
                       <div className="mt-auto pt-4 border-t border-gray-50 flex items-center justify-between">
                           <div>
                             <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Тонна</div>
                             <div className="font-extrabold text-xl text-primary-900">{product.pricePerTon.toLocaleString()} ₽</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Метр</div>
-                            <div className="font-bold text-lg text-slate-600">{product.pricePerMeter} ₽</div>
                           </div>
                       </div>
                     </div>
@@ -162,13 +135,7 @@ export const Catalog: React.FC = () => {
                     <Filter size={32} className="text-slate-300" />
                 </div>
                 <h3 className="text-xl font-bold text-primary-900 mb-2">Ничего не найдено</h3>
-                <p className="text-slate-500 mb-6">Попробуйте изменить параметры фильтрации</p>
-                <button 
-                  onClick={() => {setSelectedCategory('Все'); setPriceRange(100000);}}
-                  className="px-6 py-2 bg-white border border-gray-300 text-primary-900 font-bold rounded-xl hover:bg-gray-50 transition"
-                >
-                  Сбросить все
-                </button>
+                <p className="text-slate-500 mb-6">Попробуйте изменить параметры фильтрации или добавить товары в админке.</p>
               </div>
             )}
           </div>
