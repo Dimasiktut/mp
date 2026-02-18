@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Package, Settings, 
   TrendingUp, Plus, Edit, Trash2, X, ChevronRight,
   FolderTree, Loader2, Copy, Globe, SlidersHorizontal,
-  Megaphone, Eye
+  Megaphone, Eye, AlertCircle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ADMIN_STATS } from '../constants';
@@ -33,6 +33,7 @@ export const Admin: React.FC = () => {
   const [promoSlides, setPromoSlides] = useState<PromoSlide[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   useEffect(() => {
     fetchData();
@@ -40,64 +41,56 @@ export const Admin: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
+    setErrorMsg(null);
     
-    // 1. Load Products (Isolated Try/Catch)
+    // 1. Load Products (Simplified for debugging)
     try {
+      // Убрали сортировку, чтобы исключить ошибку отсутствия колонки created_at
       const { data, error } = await supabase
         .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('*');
       
       if (error) {
         console.error('Supabase products error:', error);
+        setErrorMsg(`Ошибка загрузки товаров: ${error.message} (код: ${error.code})`);
       } else if (data) {
+        console.log('Loaded products:', data);
         setProducts(data.map(mapProductFromDB));
       }
-    } catch (e) {
-      console.error("Error loading products:", e);
+    } catch (e: any) {
+      console.error("Critical error loading products:", e);
+      setErrorMsg(`Критическая ошибка: ${e.message}`);
     }
 
     // 2. Load Orders
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (error) throw error;
+      const { data } = await supabase.from('orders').select('*').limit(20);
       if (data) {
         setOrders(data.map((o: any) => ({
            id: o.id,
            customerName: o.customer_name,
            total: o.total,
            status: o.status,
-           date: new Date(o.created_at).toLocaleDateString()
+           date: new Date(o.created_at || Date.now()).toLocaleDateString()
         })));
       }
-    } catch (e) {
-      console.error("Error loading orders:", e);
-    }
+    } catch (e) { console.error(e); }
 
     // 3. Load Attributes
     try {
       const { data } = await supabase.from('attributes').select('*');
       if (data) setGlobalAttributes(data);
-    } catch (e) {
-      console.error("Error loading attributes:", e);
-    }
+    } catch (e) { console.error(e); }
 
     // 4. Load Categories
     try {
-      const { data } = await supabase.from('categories').select('*').order('name');
+      const { data } = await supabase.from('categories').select('*');
       if (data) setCategories(data.map(mapCategoryFromDB));
-    } catch (e) {
-      console.error("Error loading categories:", e);
-    }
+    } catch (e) { console.error(e); }
 
     // 5. Load Slides
     try {
-      const { data } = await supabase.from('promo_slides').select('*').order('order');
+      const { data } = await supabase.from('promo_slides').select('*');
       if (data) {
          setPromoSlides(data.map((s: any) => ({
             id: s.id,
@@ -110,9 +103,7 @@ export const Admin: React.FC = () => {
             order: s.order
          })));
       }
-    } catch (e) {
-      console.error("Error loading slides:", e);
-    }
+    } catch (e) { console.error(e); }
 
     setLoading(false);
   };
@@ -139,7 +130,6 @@ export const Admin: React.FC = () => {
   };
 
   const saveProduct = async (productData: any) => {
-     // Prepare data for DB (snake_case)
      const dbData = mapProductToDB(productData);
      if (!productData.id) delete dbData.id;
 
@@ -179,6 +169,17 @@ export const Admin: React.FC = () => {
 
   const ProductList = () => (
     <div className="space-y-6 animate-fade-in-up">
+        {errorMsg && (
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-start gap-3">
+             <AlertCircle className="shrink-0 mt-0.5" size={20} />
+             <div>
+               <h4 className="font-bold">Ошибка загрузки данных</h4>
+               <p className="text-sm mt-1">{errorMsg}</p>
+               <p className="text-xs mt-2 text-red-500">Проверьте права доступа (RLS) в Supabase или наличие таблицы 'products'.</p>
+             </div>
+          </div>
+        )}
+
         <div className="flex justify-between items-center">
             <h2 className="text-2xl font-bold text-primary-900">Товары ({products.length})</h2>
             <button 
@@ -237,7 +238,13 @@ export const Admin: React.FC = () => {
                     ))}
                 </tbody>
             </table>
-            {products.length === 0 && <div className="p-8 text-center text-slate-400">Нет товаров. Добавьте первый товар.</div>}
+            {products.length === 0 && !errorMsg && (
+                <div className="p-12 text-center text-slate-400">
+                   <Package size={48} className="mx-auto mb-4 opacity-20" />
+                   <p>Список товаров пуст.</p>
+                   <p className="text-xs mt-2">Возможно, база данных пуста или настроен RLS.</p>
+                </div>
+            )}
         </div>
     </div>
   );
