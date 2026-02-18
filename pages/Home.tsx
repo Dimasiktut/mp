@@ -29,44 +29,57 @@ export const Home: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       // Fetch Slides
-      const { data: slideData } = await supabase.from('promo_slides').select('*').eq('is_active', true).order('order', { ascending: true });
-      if (slideData && slideData.length > 0) {
-        setSlides(slideData.map((s: any) => ({
-           id: s.id,
-           title: s.title,
-           description: s.description,
-           image: s.image,
-           link: s.link,
-           buttonText: s.button_text,
-           isActive: s.is_active,
-           order: s.order
-        })));
-      } else {
+      try {
+        const { data: slideData } = await supabase.from('promo_slides').select('*').eq('is_active', true).order('order', { ascending: true });
+        if (slideData && slideData.length > 0) {
+          setSlides(slideData.map((s: any) => ({
+             id: s.id,
+             title: s.title,
+             description: s.description,
+             image: s.image,
+             link: s.link,
+             buttonText: s.button_text,
+             isActive: s.is_active,
+             order: s.order
+          })));
+        } else {
+          setSlides(DEFAULT_SLIDES);
+        }
+      } catch (e) {
+        console.error('Error fetching slides', e);
         setSlides(DEFAULT_SLIDES);
       }
 
       // Fetch Categories (Max 8 to check if we need "Show More", we display 7)
-      const { data: catData } = await supabase.from('categories').select('*').order('name').limit(8);
-      if (catData && catData.length > 0) {
-         setCategories(catData.map(mapCategoryFromDB));
-      } else {
-         // Fallback categories (Enum)
-         setCategories(Object.values(ProductCategory).map((name, i) => ({ 
-             id: `def-${i}`, name, slug: name.toLowerCase(), count: 0 
-         })));
+      try {
+        const { data: catData } = await supabase.from('categories').select('*').order('name').limit(8);
+        if (catData && catData.length > 0) {
+           setCategories(catData.map(mapCategoryFromDB));
+        } else {
+           // Fallback categories (Enum)
+           setCategories(Object.values(ProductCategory).map((name, i) => ({ 
+               id: `def-${i}`, name, slug: name.toLowerCase(), count: 0 
+           })));
+        }
+      } catch (e) {
+        console.error('Error fetching categories', e);
       }
 
       // Fetch 1 Featured Product for floating card
-      const { data: prodData } = await supabase.from('products').select('*').limit(1);
-      if (prodData && prodData.length > 0) {
-        const p = mapProductFromDB(prodData[0]);
-        setFeaturedItem({
-            name: p.name,
-            price: `${p.pricePerTon.toLocaleString()} ₽`,
-            trend: "+2.4%", 
-            image: p.image || "https://images.unsplash.com/photo-1626372412809-54129532822a?auto=format&fit=crop&w=600&q=80",
-            chart: [40, 65, 55, 80, 70, 90, 85]
-        });
+      try {
+        const { data: prodData } = await supabase.from('products').select('*').limit(1);
+        if (prodData && prodData.length > 0) {
+          const p = mapProductFromDB(prodData[0]);
+          setFeaturedItem({
+              name: p.name,
+              price: `${p.pricePerTon.toLocaleString()} ₽`,
+              trend: "+2.4%", 
+              image: p.image || "https://images.unsplash.com/photo-1626372412809-54129532822a?auto=format&fit=crop&w=600&q=80",
+              chart: [40, 65, 55, 80, 70, 90, 85]
+          });
+        }
+      } catch (e) {
+        console.error('Error fetching featured product', e);
       }
     };
     fetchData();
@@ -85,7 +98,7 @@ export const Home: React.FC = () => {
 
   const currentSlide = slides[currentSlideIndex] || DEFAULT_SLIDES[0];
 
-  // Logic for Grid: Show max 7 categories, then "All Categories" button
+  // Logic for Grid: Show max 7 categories
   const displayCategories = categories.slice(0, 7);
 
   return (
@@ -225,22 +238,26 @@ export const Home: React.FC = () => {
         )}
       </section>
 
-      {/* Categories Grid - Clean & Minimal */}
+      {/* Categories Grid - Clean & Minimal - CENTERED */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-32 relative z-20">
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+        <div className="flex flex-wrap justify-center gap-6">
           {displayCategories.map((cat) => (
-             <Link to={`/catalog/${cat.slug}`} key={cat.id} className="group bg-white p-4 rounded-2xl shadow-card hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 text-center border border-gray-100 flex flex-col items-center justify-center h-full">
-               <div className="w-12 h-12 mx-auto bg-primary-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-brand-500 transition-colors">
-                  <Box size={20} className="text-primary-900 group-hover:text-white transition-colors" />
+             <Link 
+               to={`/catalog/${cat.slug}`} 
+               key={cat.id} 
+               className="group bg-white p-4 rounded-2xl shadow-card hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 text-center border border-gray-100 flex flex-col items-center justify-center w-36 md:w-44 h-44"
+             >
+               <div className="w-14 h-14 mx-auto bg-primary-50 rounded-xl flex items-center justify-center mb-4 group-hover:bg-brand-500 transition-colors">
+                  <Box size={24} className="text-primary-900 group-hover:text-white transition-colors" />
                </div>
-               <h3 className="font-bold text-primary-900 text-sm group-hover:text-brand-600 transition-colors leading-tight">{cat.name}</h3>
+               <h3 className="font-bold text-primary-900 text-sm group-hover:text-brand-600 transition-colors leading-tight line-clamp-2">{cat.name}</h3>
              </Link>
           ))}
           
           {/* Show More Button */}
-          <Link to="/catalog" className="group bg-primary-900 p-4 rounded-2xl shadow-card hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 text-center border border-primary-900 flex flex-col items-center justify-center h-full">
-             <div className="w-12 h-12 mx-auto bg-white/10 rounded-xl flex items-center justify-center mb-3 group-hover:bg-brand-500 transition-colors">
-                <Layers size={20} className="text-white" />
+          <Link to="/catalog" className="group bg-primary-900 p-4 rounded-2xl shadow-card hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 text-center border border-primary-900 flex flex-col items-center justify-center w-36 md:w-44 h-44">
+             <div className="w-14 h-14 mx-auto bg-white/10 rounded-xl flex items-center justify-center mb-4 group-hover:bg-brand-500 transition-colors">
+                <Layers size={24} className="text-white" />
              </div>
              <h3 className="font-bold text-white text-sm">Все категории</h3>
           </Link>
