@@ -4,12 +4,12 @@ import {
   LayoutDashboard, Package, Settings, 
   TrendingUp, Plus, Edit, Trash2, X, ChevronRight,
   FolderTree, Loader2, Copy, Globe, SlidersHorizontal,
-  Megaphone, Eye, AlertCircle
+  Megaphone, Eye, AlertCircle, Wand2
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ADMIN_STATS } from '../constants';
 import { Product, ProductCategory, Order, ProductPricing, GlobalAttribute, PromoSlide, Category } from '../types';
-import { supabase, mapProductFromDB, mapProductToDB, mapCategoryFromDB } from '../lib/supabase';
+import { supabase, mapProductFromDB, mapProductToDB, mapCategoryFromDB, transliterate } from '../lib/supabase';
 
 // Types for Internal State
 type ViewState = 'DASHBOARD' | 'PRODUCTS' | 'ADD_PRODUCT' | 'CATEGORIES' | 'IMPORT' | 'ATTRIBUTES' | 'TAGS' | 'SEO_SETTINGS' | 'PROMO';
@@ -43,18 +43,16 @@ export const Admin: React.FC = () => {
     setLoading(true);
     setErrorMsg(null);
     
-    // 1. Load Products (Simplified for debugging)
+    // 1. Load Products
     try {
-      // Убрали сортировку, чтобы исключить ошибку отсутствия колонки created_at
       const { data, error } = await supabase
         .from('products')
         .select('*');
       
       if (error) {
         console.error('Supabase products error:', error);
-        setErrorMsg(`Ошибка загрузки товаров: ${error.message} (код: ${error.code})`);
+        setErrorMsg(`Ошибка загрузки товаров: ${error.message}`);
       } else if (data) {
-        console.log('Loaded products:', data);
         setProducts(data.map(mapProductFromDB));
       }
     } catch (e: any) {
@@ -130,6 +128,11 @@ export const Admin: React.FC = () => {
   };
 
   const saveProduct = async (productData: any) => {
+     // Ensure slug exists
+     if (!productData.slug) {
+        productData.slug = transliterate(productData.name);
+     }
+
      const dbData = mapProductToDB(productData);
      if (!productData.id) delete dbData.id;
 
@@ -175,7 +178,6 @@ export const Admin: React.FC = () => {
              <div>
                <h4 className="font-bold">Ошибка загрузки данных</h4>
                <p className="text-sm mt-1">{errorMsg}</p>
-               <p className="text-xs mt-2 text-red-500">Проверьте права доступа (RLS) в Supabase или наличие таблицы 'products'.</p>
              </div>
           </div>
         )}
@@ -211,6 +213,7 @@ export const Admin: React.FC = () => {
                             <td className="p-4">
                                 <div className="font-bold text-primary-900">{product.name}</div>
                                 <div className="text-xs text-slate-400">{product.article}</div>
+                                <div className="text-[10px] text-slate-400 font-mono mt-1 bg-gray-100 inline-block px-1 rounded">{product.slug}</div>
                             </td>
                             <td className="p-4 text-sm font-medium text-slate-600">
                                 {product.category}
@@ -242,7 +245,6 @@ export const Admin: React.FC = () => {
                 <div className="p-12 text-center text-slate-400">
                    <Package size={48} className="mx-auto mb-4 opacity-20" />
                    <p>Список товаров пуст.</p>
-                   <p className="text-xs mt-2">Возможно, база данных пуста или настроен RLS.</p>
                 </div>
             )}
         </div>
@@ -252,6 +254,7 @@ export const Admin: React.FC = () => {
   const ProductEditor = () => {
     const [form, setForm] = useState<Partial<Product>>(editingProduct || {
         name: '',
+        slug: '',
         article: '',
         category: ProductCategory.REBAR,
         pricePerTon: 0,
@@ -271,11 +274,14 @@ export const Admin: React.FC = () => {
         setForm(prev => ({ ...prev, [field]: value }));
     };
 
+    const handleGenerateSlug = () => {
+        if (form.name) {
+            handleChange('slug', transliterate(form.name));
+        }
+    };
+
     const handleSaveForm = () => {
         if (!form.name || !form.category) return alert('Название и категория обязательны');
-        if (!form.slug) {
-            form.slug = form.name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '');
-        }
         saveProduct(form);
     };
 
@@ -295,6 +301,27 @@ export const Admin: React.FC = () => {
                                 <label className="label text-xs font-bold text-slate-400">Название</label>
                                 <input className="w-full border p-3 rounded-xl bg-gray-50" value={form.name} onChange={e => handleChange('name', e.target.value)} />
                             </div>
+                            
+                            <div className="col-span-2">
+                                <label className="label text-xs font-bold text-slate-400">Ссылка (Slug)</label>
+                                <div className="flex gap-2">
+                                    <input 
+                                      className="w-full border p-3 rounded-xl bg-gray-50 text-sm font-mono text-slate-600" 
+                                      value={form.slug || ''} 
+                                      onChange={e => handleChange('slug', e.target.value)} 
+                                      placeholder="avtomaticheskaya-generaciya"
+                                    />
+                                    <button 
+                                      onClick={handleGenerateSlug}
+                                      className="px-4 bg-gray-100 hover:bg-brand-50 text-brand-600 rounded-xl font-bold text-xs flex items-center gap-1 transition"
+                                      title="Сгенерировать из названия"
+                                    >
+                                       <Wand2 size={16} /> Авто
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">Используется в адресной строке: /product/<b>vash-slug</b></p>
+                            </div>
+
                             <div>
                                 <label className="label text-xs font-bold text-slate-400">Артикул</label>
                                 <input className="w-full border p-3 rounded-xl bg-gray-50" value={form.article} onChange={e => handleChange('article', e.target.value)} />
@@ -359,7 +386,7 @@ export const Admin: React.FC = () => {
        
        const dbData = {
           name: editingCategory.name,
-          slug: editingCategory.slug || editingCategory.name.toLowerCase().replace(/\s/g, '-'),
+          slug: editingCategory.slug || transliterate(editingCategory.name),
           image: editingCategory.image,
           description: editingCategory.description,
           seo: editingCategory.seo,
@@ -423,7 +450,10 @@ export const Admin: React.FC = () => {
                     <div className="bg-white rounded-3xl shadow-card border border-gray-100 p-8 space-y-4">
                         <h3 className="font-bold">Редактирование</h3>
                         <input className="w-full border p-2 rounded" placeholder="Название" value={editingCategory.name} onChange={e => setEditingCategory({...editingCategory, name: e.target.value})} />
-                        <input className="w-full border p-2 rounded" placeholder="Slug" value={editingCategory.slug} onChange={e => setEditingCategory({...editingCategory, slug: e.target.value})} />
+                        <div className="flex gap-2">
+                           <input className="w-full border p-2 rounded bg-gray-50" placeholder="Slug (Авто)" value={editingCategory.slug} onChange={e => setEditingCategory({...editingCategory, slug: e.target.value})} />
+                           <button onClick={() => setEditingCategory({...editingCategory, slug: transliterate(editingCategory.name || '')})} className="px-3 bg-gray-100 rounded hover:bg-gray-200"><Wand2 size={16}/></button>
+                        </div>
                         <input className="w-full border p-2 rounded" placeholder="Image URL" value={editingCategory.image || ''} onChange={e => setEditingCategory({...editingCategory, image: e.target.value})} />
                         <button onClick={handleSave} className="w-full bg-brand-500 text-white py-2 rounded font-bold">Сохранить</button>
                     </div>
