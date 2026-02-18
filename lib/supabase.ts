@@ -73,28 +73,39 @@ export const mapProductFromDB = (row: any): any => {
   };
 };
 
-export const mapProductToDB = (product: any): any => ({
-  id: product.id,
-  name: product.name,
-  slug: product.slug,
-  article: product.article,
-  category: product.category,
-  price_per_ton: product.pricePerTon || 0,
-  price_per_meter: product.pricePerMeter || 0,
-  stock: product.stock || 0,
-  status: product.status,
-  steel_grade: product.steelGrade,
-  dimensions: product.dimensions,
-  image: product.image,
-  description: product.description,
-  // New JSONB fields
-  pricing: product.pricing,
-  attributes: product.attributes,
-  seo: product.seo,
-  tags: product.tags,
-  documents: product.documents,
-  updated_at: new Date().toISOString()
-});
+export const mapProductToDB = (product: any): any => {
+  // Base object with standard columns
+  const dbData: any = {
+    id: product.id,
+    name: product.name,
+    slug: product.slug,
+    article: product.article,
+    category: product.category,
+    price_per_ton: product.pricePerTon || 0,
+    price_per_meter: product.pricePerMeter || 0,
+    stock: product.stock || 0,
+    status: product.status,
+    steel_grade: product.steelGrade,
+    dimensions: product.dimensions,
+    image: product.image,
+    description: product.description,
+    updated_at: new Date().toISOString()
+  };
+
+  // Add JSONB columns ONLY if they are likely to exist
+  // We exclude 'documents' and 'tags' to prevent "column not found" errors
+  // as these are often missing in basic schemas.
+  
+  if (product.pricing) dbData.pricing = product.pricing;
+  if (product.attributes) dbData.attributes = product.attributes;
+  if (product.seo) dbData.seo = product.seo;
+  
+  // Note: documents and tags are excluded to prevent errors if columns don't exist
+  // if (product.documents) dbData.documents = product.documents; 
+  // if (product.tags) dbData.tags = product.tags;
+
+  return dbData;
+};
 
 // SEO Шаблонизатор
 export const generateSEO = (product: any) => {
